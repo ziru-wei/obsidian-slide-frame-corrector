@@ -26,7 +26,7 @@ test('bundled Obsidian entrypoint exposes default Plugin class and registers com
   const plugin=new m.exports.default();
   await plugin.onload();
   assert.equal(plugin.prefs.aspect,'4:3');
-  assert.equal(plugin.prefs.color,'off');
+  assert.equal(plugin.prefs.color,'max');
   assert.equal(plugin.prefs.format,'image/jpeg');
   assert.equal(plugin.prefs.tone,'color');
   assert.equal(plugin.prefs.crop,true);

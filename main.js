@@ -979,7 +979,7 @@ function noteDraft(plugin, file, editor, sameAsSaved = false) {
     else if (editor.origin === 'auto')
         plugin.clearDraft(file.path);
 }
-const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto', trim: 'xwide' };
+const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'max', tone: 'color', crop: true, lang: 'auto', trim: 'xwide' };
 const TRIM_OPTIONS = [['Off', 'off'], ['Normal', 'normal'], ['Wide ⚠', 'wide'], ['Extra wide ⚠⚠', 'xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
 let currentTrim = 'xwide';
@@ -2363,7 +2363,7 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
         super(...arguments);
         this.prefs = { ...DEFAULT_PREFS };
         /** Last non-off colour strength, restored when the Color switch is turned back on. */
-        this.lastColor = 'standard';
+        this.lastColor = 'max';
         /** Output image path -> original photo and the frame that produced it, so re-editing starts from the original. */
         this.records = {};
         /** Frames the user dragged but did not save, keyed by original photo path. */

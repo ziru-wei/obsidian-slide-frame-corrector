@@ -38,7 +38,7 @@ type Entry = Resolved & {note: TFile};
 type Aspect = 'auto'|'16:9'|'4:3';
 type OutputFormat = 'image/jpeg'|'image/png';
 type Prefs = {aspect: Aspect; format: OutputFormat; color: ColorMode; tone: Tone; crop: boolean; lang: Lang; trim: Trim};
-const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto', trim:'xwide'};
+const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'max', tone:'color', crop:true, lang:'auto', trim:'xwide'};
 type Opt = [string,string,string?]; // caption, value, optional Lucide icon
 const TRIM_OPTIONS: Opt[] = [['Off','off'],['Normal','normal'],['Wide ⚠','wide'],['Extra wide ⚠⚠','xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
@@ -1114,7 +1114,7 @@ class SlideFrameSettingTab extends PluginSettingTab {
 export default class SlideFrameCorrector extends Plugin {
   prefs:Prefs={...DEFAULT_PREFS};
   /** Last non-off colour strength, restored when the Color switch is turned back on. */
-  lastColor:ColorMode='standard';
+  lastColor:ColorMode='max';
   /** Output image path -> original photo and the frame that produced it, so re-editing starts from the original. */
   records:Record<string,Rec>={};
   /** Frames the user dragged but did not save, keyed by original photo path. */
