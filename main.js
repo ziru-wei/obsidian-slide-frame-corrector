@@ -960,13 +960,19 @@ function addSelect(parent, label, opts, current, onChange, hint) {
     select.addEventListener('change', () => onChange(select.value));
 }
 function setAutoBadge(btn, label, ok) {
+    btn.toggleClass('sfc-auto-ok', ok);
+    if (btn.hasClass('sfc-icon-only')) {
+        const tip = ok ? `${(0, i18n_1.t)(label)} ✓` : (0, i18n_1.t)(label);
+        btn.setAttribute('title', tip);
+        btn.setAttribute('aria-label', tip);
+        return;
+    }
     const text = ok ? `✓ ${(0, i18n_1.t)(label)}` : (0, i18n_1.t)(label);
     const span = btn.querySelector('.sfc-btn-label');
     if (span)
         span.setText(text);
     else
         btn.setText(text);
-    btn.toggleClass('sfc-auto-ok', ok);
 }
 function addButton(parent, label, onClick) {
     const button = parent.createEl('button', { text: (0, i18n_1.t)(label), attr: { type: 'button' } });
@@ -979,33 +985,36 @@ function makeIcon(parent, name) {
     (0, obsidian_1.setIcon)(el, name);
     return el;
 }
-/** Button with a Lucide icon (and a label unless `iconOnly`); shows `fallback` text if the icon is unknown. */
+/** Button with a Lucide icon; icon-only buttons carry their name as tooltip (and `fallback` text if the icon is unknown). */
 function iconButton(parent, icon, label, onClick, opts = {}) {
     const b = parent.createEl('button', { cls: 'sfc-btn', attr: { type: 'button' } });
     makeIcon(b, icon);
     if (opts.iconOnly) {
+        b.addClass('sfc-icon-only');
         b.setAttribute('aria-label', (0, i18n_1.t)(label));
         b.setAttribute('title', (0, i18n_1.t)(label));
         if (!b.querySelector('svg'))
-            b.setText(opts.fallback ?? '⋯');
+            b.setText(opts.fallback ?? '•');
     }
     else
         b.createEl('span', { cls: 'sfc-btn-label', text: (0, i18n_1.t)(label) });
     b.addEventListener('click', onClick);
     return b;
 }
-function ctlLabel(parent, label, icon) {
-    const l = parent.createEl('span', { cls: 'sfc-ctl-label' });
-    if (icon)
-        makeIcon(l, icon);
-    l.createEl('span', { text: (0, i18n_1.t)(label) });
+/** Icon button that stays pressed (on/off). */
+function iconToggle(parent, icon, label, pressed, onChange) {
+    const b = iconButton(parent, icon, label, () => { const on = !b.hasClass('is-active'); b.toggleClass('is-active', on); b.setAttribute('aria-pressed', String(on)); onChange(on); }, { iconOnly: true });
+    b.toggleClass('is-active', pressed);
+    b.setAttribute('aria-pressed', String(pressed));
+    return b;
 }
-/** Segmented control: a few mutually exclusive choices side by side. */
-function addSegmented(parent, label, opts, current, onChange, hint, labelIcon) {
+/** Segmented control. With `iconOnly`, each choice is just its icon (the name is the tooltip). The label, if any, comes first, the control to its right. */
+function addSegmented(parent, label, opts, current, onChange, hint, iconOnly = false) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
     if (hint)
         el.setAttribute('title', hint);
-    ctlLabel(el, label, labelIcon);
+    if (label)
+        el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const seg = el.createDiv({ cls: 'sfc-seg', attr: { role: 'group' } });
     const btns = new Map();
     const set = (v) => { for (const [val, b] of btns) {
@@ -1014,31 +1023,38 @@ function addSegmented(parent, label, opts, current, onChange, hint, labelIcon) {
     } };
     for (const [caption, value, icon] of opts) {
         const b = seg.createEl('button', { attr: { type: 'button' } });
-        if (icon)
+        if (iconOnly && icon) {
             makeIcon(b, icon);
-        b.createEl('span', { text: (0, i18n_1.t)(caption) });
+            b.setAttribute('title', (0, i18n_1.t)(caption));
+            b.setAttribute('aria-label', (0, i18n_1.t)(caption));
+            b.addClass('sfc-icon-only');
+        }
+        else
+            b.createEl('span', { text: (0, i18n_1.t)(caption) });
         btns.set(value, b);
         b.addEventListener('click', () => { set(value); onChange(value); });
     }
     set(current);
     return { el, set };
 }
-/** On/off switch with a label. */
-function addSwitch(parent, label, checked, onChange, hint, icon) {
+/** On/off switch: the label first, the switch to its right. */
+function addSwitch(parent, label, checked, onChange, hint) {
     const el = parent.createEl('label', { cls: 'sfc-ctl sfc-switch' });
     if (hint)
         el.setAttribute('title', hint);
+    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const input = el.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = checked;
     el.createEl('span', { cls: 'sfc-switch-track' });
-    ctlLabel(el, label, icon);
     input.addEventListener('change', () => onChange(input.checked));
     return { el, input };
 }
-/** Slider over a few ordered levels, with the current level named next to it. */
-function addStepSlider(parent, label, opts, current, onChange, labelIcon) {
+/** Slider over a few ordered levels: label, slider, then the current level's name. */
+function addStepSlider(parent, label, opts, current, onChange, hint) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
-    ctlLabel(el, label, labelIcon);
+    if (hint)
+        el.setAttribute('title', hint);
+    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const input = el.createEl('input', { cls: 'sfc-slider', attr: { type: 'range', min: '0', max: String(opts.length - 1), step: '1' } });
     const name = el.createEl('span', { cls: 'sfc-slider-value' });
     const idx = Math.max(0, opts.findIndex(o => o[1] === current));
@@ -1047,13 +1063,11 @@ function addStepSlider(parent, label, opts, current, onChange, labelIcon) {
     input.addEventListener('input', () => { const o = opts[Number(input.value)]; name.setText((0, i18n_1.t)(o[0])); onChange(o[1]); });
     return { el, input };
 }
-/** A titled group whose header carries its own on/off switch; when off, the controls inside are dimmed and disabled. */
-function addGroup(parent, title, icon, toggle) {
+/** A titled group; the group's own switch sits right after the title. When off, the controls inside are dimmed and disabled. */
+function addGroup(parent, title, toggle) {
     const g = parent.createDiv({ cls: 'sfc-group' });
     const head = g.createDiv({ cls: 'sfc-group-head' });
-    const titleEl = head.createDiv({ cls: 'sfc-group-title' });
-    makeIcon(titleEl, icon);
-    titleEl.createEl('span', { text: (0, i18n_1.t)(title) });
+    head.createDiv({ cls: 'sfc-group-title', text: (0, i18n_1.t)(title) });
     const sw = head.createEl('label', { cls: 'sfc-switch sfc-group-switch', attr: { 'aria-label': (0, i18n_1.t)(title) } });
     const input = sw.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = toggle.checked;
@@ -1070,13 +1084,13 @@ function addGroup(parent, title, icon, toggle) {
 function buildToolbar(parent, plugin, h) {
     const prefs = plugin.prefs;
     const bar = parent.createDiv({ cls: 'sfc-toolbar' });
-    const frame = addGroup(bar, 'Correct', 'crop', { checked: prefs.crop, onChange: on => { plugin.setPref('crop', on); h.onCrop(on); } });
-    addSegmented(frame.body, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }, undefined, 'ratio');
-    addSegmented(frame.body, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT), 'scan');
+    const frame = addGroup(bar, 'Correct', { checked: prefs.crop, onChange: on => { plugin.setPref('crop', on); h.onCrop(on); } });
+    addSegmented(frame.body, null, ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }, (0, i18n_1.t)('Aspect'));
+    addStepSlider(frame.body, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT));
     const extras = frame.body.createDiv({ cls: 'sfc-ctl sfc-ctl-buttons' });
     h.frameExtras(extras);
     frame.setEnabled(prefs.crop);
-    const color = addGroup(bar, 'Color', 'palette', { checked: prefs.color !== 'off', onChange: on => {
+    const color = addGroup(bar, 'Color', { checked: prefs.color !== 'off', onChange: on => {
             plugin.setPref('color', on ? plugin.lastColor : 'off');
             h.onColor();
         } });
@@ -1084,14 +1098,14 @@ function buildToolbar(parent, plugin, h) {
         plugin.lastColor = v;
         plugin.setPref('color', v);
         h.onColor();
-    }, 'sliders-horizontal');
-    addSegmented(color.body, 'Tone', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, undefined, 'swatch-book');
+    });
+    addSegmented(color.body, null, TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, (0, i18n_1.t)('Tone'), true);
     color.setEnabled(prefs.color !== 'off');
     return { setCropEnabled: frame.setEnabled };
 }
 /** Output format (and per-dialog extras), shown at the left of the bottom bar. */
 function buildFileBar(parent, plugin, extras) {
-    addSegmented(parent, 'Save as', FORMAT_OPTIONS, plugin.prefs.format, v => plugin.setPref('format', v), undefined, 'image');
+    addSegmented(parent, 'Save as', FORMAT_OPTIONS, plugin.prefs.format, v => plugin.setPref('format', v));
     extras(parent);
 }
 const KEY_HINT = 'Number key: next corner candidate · Shift+number: previous candidate';
@@ -1703,8 +1717,8 @@ class CorrectSlideModal extends obsidian_1.Modal {
             onColor: () => this.requestPreview(false),
             onTone: () => this.requestPreview(false),
             frameExtras: body => {
-                this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect());
-                this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset());
+                this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect(), { iconOnly: true });
+                this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset(), { iconOnly: true });
             },
         });
         const body = this.contentEl.createDiv({ cls: 'sfc-body' });
@@ -1852,14 +1866,14 @@ class BatchModal extends obsidian_1.Modal {
             onColor: () => this.refreshPreviews(),
             onTone: () => this.refreshPreviews(),
             frameExtras: body => {
-                addSwitch(body, 'Auto-detect all', false, on => {
+                iconToggle(body, 'sparkles', 'Auto-detect all', false, on => {
                     this.autoAll = on;
                     for (const c of this.visible())
                         if (on)
                             this.applyAuto(c);
                         else
                             this.undoAuto(c);
-                }, undefined, 'sparkles');
+                });
             },
         });
         this.summary = this.contentEl.createDiv({ cls: 'sfc-help' });
@@ -1868,11 +1882,11 @@ class BatchModal extends obsidian_1.Modal {
         this.empty = body.createDiv({ cls: 'sfc-empty sfc-help' });
         const footer = this.contentEl.createDiv({ cls: 'sfc-footer' });
         buildFileBar(footer.createDiv({ cls: 'sfc-footer-left' }), this.plugin, body => {
-            addSwitch(body, 'Show processed', false, on => { this.showProcessed = on; this.render(); }, undefined, 'eye');
+            addSwitch(body, 'Show processed', false, on => { this.showProcessed = on; this.render(); });
             const all = body.createEl('label', { cls: 'sfc-ctl' });
+            all.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)('Select all') });
             this.master = all.createEl('input', { attr: { type: 'checkbox' } });
             this.master.checked = true;
-            ctlLabel(all, 'Select all', 'list-checks');
             this.master.addEventListener('change', () => {
                 this.defaultInclude = this.master.checked;
                 for (const c of this.visible())
@@ -1972,11 +1986,9 @@ class BatchModal extends obsidian_1.Modal {
         include.addEventListener('change', () => this.updateSave());
         label.createEl('span', { text: (0, i18n_1.t)('Photo {0}', this.cards.indexOf(card) + 1) });
         const tools = head.createDiv({ cls: 'sfc-card-tools' });
-        card.autoBtn = addButton(tools, 'Auto', () => { card.editor?.autoDetect(); });
-        addButton(tools, 'Reset', () => { card.editor?.reset(); });
-        const more = addButton(tools, '⋯', ev => showInfoMenu(ev, fileRows(card.entry, card.source)));
-        more.addClass('sfc-more');
-        more.setAttribute('aria-label', (0, i18n_1.t)('More'));
+        card.autoBtn = iconButton(tools, 'sparkles', 'Auto', () => { card.editor?.autoDetect(); }, { iconOnly: true });
+        iconButton(tools, 'rotate-ccw', 'Reset', () => { card.editor?.reset(); }, { iconOnly: true });
+        iconButton(tools, 'ellipsis', 'More', ev => showInfoMenu(ev, fileRows(card.entry, card.source)), { iconOnly: true, fallback: '⋯' });
         card.reason = root.createDiv({ cls: 'sfc-reason' });
         card.status = root.createDiv({ cls: 'sfc-help', text: (0, i18n_1.t)('Loading…') });
         root.addEventListener('pointerdown', () => this.select(card), true);

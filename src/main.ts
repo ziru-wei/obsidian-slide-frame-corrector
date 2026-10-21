@@ -105,10 +105,11 @@ function addSelect(parent:HTMLElement,label:string,opts:[string,string][],curren
   select.addEventListener('change',()=>onChange(select.value));
 }
 function setAutoBadge(btn:HTMLButtonElement,label:string,ok:boolean):void {
+  btn.toggleClass('sfc-auto-ok',ok);
+  if(btn.hasClass('sfc-icon-only')){const tip=ok?`${t(label)} ✓`:t(label);btn.setAttribute('title',tip);btn.setAttribute('aria-label',tip);return;}
   const text=ok?`✓ ${t(label)}`:t(label);
   const span=btn.querySelector('.sfc-btn-label');
   if(span)span.setText(text);else btn.setText(text);
-  btn.toggleClass('sfc-auto-ok',ok);
 }
 function addButton(parent:HTMLElement,label:string,onClick:(e:MouseEvent)=>void):HTMLButtonElement {
   const button=parent.createEl('button',{text:t(label),attr:{type:'button'}});
@@ -120,55 +121,58 @@ function makeIcon(parent:HTMLElement,name:string):HTMLElement {
   setIcon(el,name);
   return el;
 }
-/** Button with a Lucide icon (and a label unless `iconOnly`); shows `fallback` text if the icon is unknown. */
+/** Button with a Lucide icon; icon-only buttons carry their name as tooltip (and `fallback` text if the icon is unknown). */
 function iconButton(parent:HTMLElement,icon:string,label:string,onClick:(e:MouseEvent)=>void,opts:{iconOnly?:boolean;fallback?:string}={}):HTMLButtonElement {
   const b=parent.createEl('button',{cls:'sfc-btn',attr:{type:'button'}});
   makeIcon(b,icon);
   if(opts.iconOnly){
+    b.addClass('sfc-icon-only');
     b.setAttribute('aria-label',t(label));b.setAttribute('title',t(label));
-    if(!b.querySelector('svg'))b.setText(opts.fallback??'⋯');
+    if(!b.querySelector('svg'))b.setText(opts.fallback??'•');
   }else b.createEl('span',{cls:'sfc-btn-label',text:t(label)});
   b.addEventListener('click',onClick);
   return b;
 }
-function ctlLabel(parent:HTMLElement,label:string,icon?:string):void {
-  const l=parent.createEl('span',{cls:'sfc-ctl-label'});
-  if(icon)makeIcon(l,icon);
-  l.createEl('span',{text:t(label)});
+/** Icon button that stays pressed (on/off). */
+function iconToggle(parent:HTMLElement,icon:string,label:string,pressed:boolean,onChange:(on:boolean)=>void){
+  const b=iconButton(parent,icon,label,()=>{const on=!b.hasClass('is-active');b.toggleClass('is-active',on);b.setAttribute('aria-pressed',String(on));onChange(on);},{iconOnly:true});
+  b.toggleClass('is-active',pressed);b.setAttribute('aria-pressed',String(pressed));
+  return b;
 }
-/** Segmented control: a few mutually exclusive choices side by side. */
-function addSegmented(parent:HTMLElement,label:string,opts:Opt[],current:string,onChange:(value:string)=>void,hint?:string,labelIcon?:string){
+/** Segmented control. With `iconOnly`, each choice is just its icon (the name is the tooltip). The label, if any, comes first, the control to its right. */
+function addSegmented(parent:HTMLElement,label:string|null,opts:Opt[],current:string,onChange:(value:string)=>void,hint?:string,iconOnly=false){
   const el=parent.createDiv({cls:'sfc-ctl'});
   if(hint)el.setAttribute('title',hint);
-  ctlLabel(el,label,labelIcon);
+  if(label)el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const seg=el.createDiv({cls:'sfc-seg',attr:{role:'group'}});
   const btns=new Map<string,HTMLButtonElement>();
   const set=(v:string)=>{for(const [val,b] of btns){b.toggleClass('is-active',val===v);b.setAttribute('aria-pressed',String(val===v));}};
   for(const [caption,value,icon] of opts){
     const b=seg.createEl('button',{attr:{type:'button'}});
-    if(icon)makeIcon(b,icon);
-    b.createEl('span',{text:t(caption)});
+    if(iconOnly&&icon){makeIcon(b,icon);b.setAttribute('title',t(caption));b.setAttribute('aria-label',t(caption));b.addClass('sfc-icon-only');}
+    else b.createEl('span',{text:t(caption)});
     btns.set(value,b);
     b.addEventListener('click',()=>{set(value);onChange(value);});
   }
   set(current);
   return {el,set};
 }
-/** On/off switch with a label. */
-function addSwitch(parent:HTMLElement,label:string,checked:boolean,onChange:(on:boolean)=>void,hint?:string,icon?:string){
+/** On/off switch: the label first, the switch to its right. */
+function addSwitch(parent:HTMLElement,label:string,checked:boolean,onChange:(on:boolean)=>void,hint?:string){
   const el=parent.createEl('label',{cls:'sfc-ctl sfc-switch'});
   if(hint)el.setAttribute('title',hint);
+  el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const input=el.createEl('input',{attr:{type:'checkbox'}});
   input.checked=checked;
   el.createEl('span',{cls:'sfc-switch-track'});
-  ctlLabel(el,label,icon);
   input.addEventListener('change',()=>onChange(input.checked));
   return {el,input};
 }
-/** Slider over a few ordered levels, with the current level named next to it. */
-function addStepSlider(parent:HTMLElement,label:string,opts:Opt[],current:string,onChange:(value:string)=>void,labelIcon?:string){
+/** Slider over a few ordered levels: label, slider, then the current level's name. */
+function addStepSlider(parent:HTMLElement,label:string,opts:Opt[],current:string,onChange:(value:string)=>void,hint?:string){
   const el=parent.createDiv({cls:'sfc-ctl'});
-  ctlLabel(el,label,labelIcon);
+  if(hint)el.setAttribute('title',hint);
+  el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const input=el.createEl('input',{cls:'sfc-slider',attr:{type:'range',min:'0',max:String(opts.length-1),step:'1'}});
   const name=el.createEl('span',{cls:'sfc-slider-value'});
   const idx=Math.max(0,opts.findIndex(o=>o[1]===current));
@@ -176,13 +180,11 @@ function addStepSlider(parent:HTMLElement,label:string,opts:Opt[],current:string
   input.addEventListener('input',()=>{const o=opts[Number(input.value)];name.setText(t(o[0]));onChange(o[1]);});
   return {el,input};
 }
-/** A titled group whose header carries its own on/off switch; when off, the controls inside are dimmed and disabled. */
-function addGroup(parent:HTMLElement,title:string,icon:string,toggle:{checked:boolean;onChange:(on:boolean)=>void}){
+/** A titled group; the group's own switch sits right after the title. When off, the controls inside are dimmed and disabled. */
+function addGroup(parent:HTMLElement,title:string,toggle:{checked:boolean;onChange:(on:boolean)=>void}){
   const g=parent.createDiv({cls:'sfc-group'});
   const head=g.createDiv({cls:'sfc-group-head'});
-  const titleEl=head.createDiv({cls:'sfc-group-title'});
-  makeIcon(titleEl,icon);
-  titleEl.createEl('span',{text:t(title)});
+  head.createDiv({cls:'sfc-group-title',text:t(title)});
   const sw=head.createEl('label',{cls:'sfc-switch sfc-group-switch',attr:{'aria-label':t(title)}});
   const input=sw.createEl('input',{attr:{type:'checkbox'}});
   input.checked=toggle.checked;
@@ -203,25 +205,25 @@ type ToolbarHooks = {
 function buildToolbar(parent:HTMLElement,plugin:SlideFrameCorrector,h:ToolbarHooks):{setCropEnabled:(on:boolean)=>void} {
   const prefs=plugin.prefs;
   const bar=parent.createDiv({cls:'sfc-toolbar'});
-  const frame=addGroup(bar,'Correct','crop',{checked:prefs.crop,onChange:on=>{plugin.setPref('crop',on);h.onCrop(on);}});
-  addSegmented(frame.body,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{plugin.setPref('aspect',v as Aspect);h.onAspect();},undefined,'ratio');
-  addSegmented(frame.body,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim();},t(TRIM_HINT),'scan');
+  const frame=addGroup(bar,'Correct',{checked:prefs.crop,onChange:on=>{plugin.setPref('crop',on);h.onCrop(on);}});
+  addSegmented(frame.body,null,ASPECT_OPTIONS,prefs.aspect,v=>{plugin.setPref('aspect',v as Aspect);h.onAspect();},t('Aspect'));
+  addStepSlider(frame.body,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim();},t(TRIM_HINT));
   const extras=frame.body.createDiv({cls:'sfc-ctl sfc-ctl-buttons'});
   h.frameExtras(extras);
   frame.setEnabled(prefs.crop);
-  const color=addGroup(bar,'Color','palette',{checked:prefs.color!=='off',onChange:on=>{
+  const color=addGroup(bar,'Color',{checked:prefs.color!=='off',onChange:on=>{
     plugin.setPref('color',on?plugin.lastColor:'off');h.onColor();
   }});
   addStepSlider(color.body,'Strength',COLOR_LEVELS,prefs.color==='off'?plugin.lastColor:prefs.color,v=>{
     plugin.lastColor=v as ColorMode;plugin.setPref('color',v as ColorMode);h.onColor();
-  },'sliders-horizontal');
-  addSegmented(color.body,'Tone',TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();},undefined,'swatch-book');
+  });
+  addSegmented(color.body,null,TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();},t('Tone'),true);
   color.setEnabled(prefs.color!=='off');
   return {setCropEnabled:frame.setEnabled};
 }
 /** Output format (and per-dialog extras), shown at the left of the bottom bar. */
 function buildFileBar(parent:HTMLElement,plugin:SlideFrameCorrector,extras:(body:HTMLElement)=>void):void {
-  addSegmented(parent,'Save as',FORMAT_OPTIONS,plugin.prefs.format,v=>plugin.setPref('format',v as OutputFormat),undefined,'image');
+  addSegmented(parent,'Save as',FORMAT_OPTIONS,plugin.prefs.format,v=>plugin.setPref('format',v as OutputFormat));
   extras(parent);
 }
 const KEY_HINT='Number key: next corner candidate · Shift+number: previous candidate';
@@ -680,8 +682,8 @@ class CorrectSlideModal extends Modal {
       onColor:()=>this.requestPreview(false),
       onTone:()=>this.requestPreview(false),
       frameExtras:body=>{
-        this.autoButton=iconButton(body,'sparkles','Auto-detect',()=>this.editor?.autoDetect());
-        this.resetButton=iconButton(body,'rotate-ccw','Reset corners',()=>this.editor?.reset());
+        this.autoButton=iconButton(body,'sparkles','Auto-detect',()=>this.editor?.autoDetect(),{iconOnly:true});
+        this.resetButton=iconButton(body,'rotate-ccw','Reset corners',()=>this.editor?.reset(),{iconOnly:true});
       },
     });
 
@@ -812,10 +814,10 @@ class BatchModal extends Modal {
       onColor:()=>this.refreshPreviews(),
       onTone:()=>this.refreshPreviews(),
       frameExtras:body=>{
-        addSwitch(body,'Auto-detect all',false,on=>{
+        iconToggle(body,'sparkles','Auto-detect all',false,on=>{
           this.autoAll=on;
           for(const c of this.visible())if(on)this.applyAuto(c);else this.undoAuto(c);
-        },undefined,'sparkles');
+        });
       },
     });
     this.summary=this.contentEl.createDiv({cls:'sfc-help'});
@@ -824,11 +826,11 @@ class BatchModal extends Modal {
     this.empty=body.createDiv({cls:'sfc-empty sfc-help'});
     const footer=this.contentEl.createDiv({cls:'sfc-footer'});
     buildFileBar(footer.createDiv({cls:'sfc-footer-left'}),this.plugin,body=>{
-      addSwitch(body,'Show processed',false,on=>{this.showProcessed=on;this.render();},undefined,'eye');
+      addSwitch(body,'Show processed',false,on=>{this.showProcessed=on;this.render();});
       const all=body.createEl('label',{cls:'sfc-ctl'});
+      all.createEl('span',{cls:'sfc-ctl-label',text:t('Select all')});
       this.master=all.createEl('input',{attr:{type:'checkbox'}});
       this.master.checked=true;
-      ctlLabel(all,'Select all','list-checks');
       this.master.addEventListener('change',()=>{
         this.defaultInclude=this.master.checked;
         for(const c of this.visible())if(c.include&&!c.include.disabled)c.include.checked=this.defaultInclude;
@@ -911,10 +913,9 @@ class BatchModal extends Modal {
     include.addEventListener('change',()=>this.updateSave());
     label.createEl('span',{text:t('Photo {0}',this.cards.indexOf(card)+1)});
     const tools=head.createDiv({cls:'sfc-card-tools'});
-    card.autoBtn=addButton(tools,'Auto',()=>{card.editor?.autoDetect();});
-    addButton(tools,'Reset',()=>{card.editor?.reset();});
-    const more=addButton(tools,'⋯',ev=>showInfoMenu(ev,fileRows(card.entry,card.source)));
-    more.addClass('sfc-more');more.setAttribute('aria-label',t('More'));
+    card.autoBtn=iconButton(tools,'sparkles','Auto',()=>{card.editor?.autoDetect();},{iconOnly:true});
+    iconButton(tools,'rotate-ccw','Reset',()=>{card.editor?.reset();},{iconOnly:true});
+    iconButton(tools,'ellipsis','More',ev=>showInfoMenu(ev,fileRows(card.entry,card.source)),{iconOnly:true,fallback:'⋯'});
     card.reason=root.createDiv({cls:'sfc-reason'});
     card.status=root.createDiv({cls:'sfc-help',text:t('Loading…')});
     root.addEventListener('pointerdown',()=>this.select(card),true);

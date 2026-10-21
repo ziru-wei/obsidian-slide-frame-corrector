@@ -116,3 +116,17 @@
 .sfc-ctl-label { display:inline-flex; align-items:center; gap:4px; }
 .sfc-footer-left { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; min-width:0; }
 .sfc-footer-left .sfc-ctl { color:var(--text-muted); }
+
+/* --- v4: group switch next to its title, fewer words, controls to the right of their labels --- */
+.sfc-group-head { justify-content:flex-start; gap:10px; }
+.sfc-group-title svg, .sfc-ctl-label svg { display:none; }
+.sfc-footer-left { gap:10px 24px; }
+.sfc-ctl-buttons { gap:4px; }
+.sfc-btn.sfc-icon-only { width:28px; height:28px; padding:0; justify-content:center; }
+.sfc-seg button.sfc-icon-only { width:auto; height:26px; padding:0 9px; }
+.sfc-btn.is-active { background:var(--interactive-accent); color:var(--text-on-accent); }
+.sfc-btn.sfc-auto-ok { color:var(--color-green); border-color:var(--color-green); }
+.sfc-btn.sfc-auto-ok.is-active { color:var(--text-on-accent); }
+.sfc-card-tools .sfc-btn.sfc-icon-only { width:26px; height:26px; }
+/* The corrected preview sits on the note's own background instead of a black box. */
+.sfc-preview-wrap { background:var(--background-primary); }
