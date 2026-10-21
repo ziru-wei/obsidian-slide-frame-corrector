@@ -105,3 +105,22 @@ test('applyTone: gray equalises channels, bw yields only 0/255',()=>{
   assert.deepEqual([...vals].sort((x,y)=>x-y),[0,255]);
   const c=mk(),copy=[...c.data];modules.color.applyTone(c,'color');assert.deepEqual([...c.data],copy);
 });
+
+test('autoColor evens out a lighting/tint gradient on a light slide',()=>{
+  const W=480,H=300;
+  const img=makeImage(W,H,()=>0);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const p=4*(y*W+x),t=x/(W-1);
+    // background drifts from dim and blue (left) to bright and warm (right)
+    let r=150+90*t,g=175+70*t,b=235-10*t;
+    if((x%23)<2&&(y%7)<5){r=g=b=40;} // a few dark "text" strokes
+    img.data[p]=r;img.data[p+1]=g;img.data[p+2]=b;
+  }
+  modules.color.autoColor(img,1);
+  const px=(x,y)=>{const p=4*(y*W+x);return [img.data[p],img.data[p+1],img.data[p+2]];};
+  const left=px(20,150),right=px(W-21,150);
+  for(let c=0;c<3;c++){
+    assert.ok(left[c]>235&&right[c]>235,`channel ${c}: ${left[c]} / ${right[c]}`);
+    assert.ok(Math.abs(left[c]-right[c])<14);
+  }
+});
