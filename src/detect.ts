@@ -11,8 +11,17 @@ const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 /** Pulls each edge of a detected frame inward past a thin dark band (the screen bezel or wall between the frame line
  *  and the lit slide). Each edge slides inward until the brightness along it reaches the interior level; edges
  *  without such a band, dark slides, and anything that would need a large move are left alone. */
-export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad): Quad {
-  const maxShift = Math.max(3, Math.round(0.05 * Math.min(w, h)));
+export type Trim = 'off'|'normal'|'wide';
+/** How far an edge may move (fraction of the photo's short side) and how dark/bright the band and the interior must be.
+ *  'wide' reaches past thicker bands but can cut into the slide; it is meant for slides with a light background. */
+const TRIM: Record<Exclude<Trim,'off'>, { maxFrac: number; low: number; reach: number }> = {
+  normal: { maxFrac: 0.05, low: 0.72, reach: 0.85 },
+  wide: { maxFrac: 0.12, low: 0.8, reach: 0.8 },
+};
+
+export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, trim: Exclude<Trim,'off'> = 'normal'): Quad {
+  const cfg = TRIM[trim];
+  const maxShift = Math.max(3, Math.round(cfg.maxFrac * Math.min(w, h)));
   const cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
   type L = { p: Point; dx: number; dy: number };
   const lines: L[] = [];
@@ -38,10 +47,10 @@ export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad): Q
     let ref = 0;
     for (let k = 2; k < prof.length; k++) if (prof[k] > ref) ref = prof[k];
     let shift = 0;
-    if (ref >= 110 && prof[0] < 0.72 * ref) {
+    if (ref >= 110 && prof[0] < cfg.low * ref) {
       // the 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
       for (let k = 1; k <= maxShift + 1; k++) {
-        if (prof[k] >= 0.85 * ref && prof[Math.min(k + 2, prof.length - 1)] >= 0.8 * ref) { shift = k; break; }
+        if (prof[k] >= cfg.reach * ref && prof[Math.min(k + 2, prof.length - 1)] >= (cfg.reach - 0.05) * ref) { shift = k; break; }
       }
     }
     lines.push({ p: { x: a.x + nx * shift, y: a.y + ny * shift }, dx, dy });
@@ -59,7 +68,7 @@ export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad): Q
 /** Detect straight slide frame in a 640px-or-smaller ImageData, with a safe manual-edit fallback.
  * Hough peaks use gradient direction so small projected edges survive busy slide contents.
  */
-export function detectSlide(img: ImageData): DetectionResult {
+export function detectSlide(img: ImageData, opts: { trim?: Trim } = {}): DetectionResult {
   const {width:w,height:h,data}=img;
   const fallback: DetectionResult={quad:insetQuad(w,h),confident:false,score:0,corners:[[],[],[],[]]};
   if(w<80||h<80) return fallback;
@@ -213,5 +222,6 @@ export function detectSlide(img: ImageData): DetectionResult {
   }
   // Weak edges are not guessed as trustworthy. User can drag the inset fallback.
   if(!best||bestScore<.15)return {...fallback,corners:collect()};
-  return {quad:refineQuad(gray,w,h,best),confident:bestScore>.25,score:bestScore,corners:collect()};
+  const trim = opts.trim ?? 'normal';
+  return {quad:trim==='off'?best:refineQuad(gray,w,h,best,trim),confident:bestScore>.25,score:bestScore,corners:collect()};
 }

@@ -209,11 +209,15 @@ exports.detectSlide = detectSlide;
 const geometry_1 = require("./geometry");
 const RAD = Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-/** Pulls each edge of a detected frame inward past a thin dark band (the screen bezel or wall between the frame line
- *  and the lit slide). Each edge slides inward until the brightness along it reaches the interior level; edges
- *  without such a band, dark slides, and anything that would need a large move are left alone. */
-function refineQuad(gray, w, h, q) {
-    const maxShift = Math.max(3, Math.round(0.05 * Math.min(w, h)));
+/** How far an edge may move (fraction of the photo's short side) and how dark/bright the band and the interior must be.
+ *  'wide' reaches past thicker bands but can cut into the slide; it is meant for slides with a light background. */
+const TRIM = {
+    normal: { maxFrac: 0.05, low: 0.72, reach: 0.85 },
+    wide: { maxFrac: 0.12, low: 0.8, reach: 0.8 },
+};
+function refineQuad(gray, w, h, q, trim = 'normal') {
+    const cfg = TRIM[trim];
+    const maxShift = Math.max(3, Math.round(cfg.maxFrac * Math.min(w, h)));
     const cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
     const lines = [];
     for (let i = 0; i < 4; i++) {
@@ -246,10 +250,10 @@ function refineQuad(gray, w, h, q) {
             if (prof[k] > ref)
                 ref = prof[k];
         let shift = 0;
-        if (ref >= 110 && prof[0] < 0.72 * ref) {
+        if (ref >= 110 && prof[0] < cfg.low * ref) {
             // the 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
             for (let k = 1; k <= maxShift + 1; k++) {
-                if (prof[k] >= 0.85 * ref && prof[Math.min(k + 2, prof.length - 1)] >= 0.8 * ref) {
+                if (prof[k] >= cfg.reach * ref && prof[Math.min(k + 2, prof.length - 1)] >= (cfg.reach - 0.05) * ref) {
                     shift = k;
                     break;
                 }
@@ -270,7 +274,7 @@ function refineQuad(gray, w, h, q) {
 /** Detect straight slide frame in a 640px-or-smaller ImageData, with a safe manual-edit fallback.
  * Hough peaks use gradient direction so small projected edges survive busy slide contents.
  */
-function detectSlide(img) {
+function detectSlide(img, opts = {}) {
     const { width: w, height: h, data } = img;
     const fallback = { quad: (0, geometry_1.insetQuad)(w, h), confident: false, score: 0, corners: [[], [], [], []] };
     if (w < 80 || h < 80)
@@ -494,7 +498,8 @@ function detectSlide(img) {
     // Weak edges are not guessed as trustworthy. User can drag the inset fallback.
     if (!best || bestScore < .15)
         return { ...fallback, corners: collect() };
-    return { quad: refineQuad(gray, w, h, best), confident: bestScore > .25, score: bestScore, corners: collect() };
+    const trim = opts.trim ?? 'normal';
+    return { quad: trim === 'off' ? best : refineQuad(gray, w, h, best, trim), confident: bestScore > .25, score: bestScore, corners: collect() };
 }
 
 },
@@ -763,6 +768,8 @@ const ZH = {
     'Aspect ratio': '输出比例', 'Save as ': '保存格式',
     'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.': '校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
     'File format of the corrected image.': '校正后图片的文件格式。',
+    'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠',
+    'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
     'Color correction': '矫色', 'Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.': '自动白平衡和色阶曲线。关闭则保持原色；“强”最激进。',
     'Color, grayscale, or pure black & white (applied after color correction).': '彩色、灰度或纯黑白（在矫色之后应用）。',
@@ -825,7 +832,11 @@ function noteDraft(plugin, file, editor, sameAsSaved = false) {
     else if (editor.origin === 'auto')
         plugin.clearDraft(file.path);
 }
-const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto' };
+const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto', trim: 'normal' };
+const TRIM_OPTIONS = [['Off', 'off'], ['Normal', 'normal'], ['Wide ⚠', 'wide']];
+/** Edge trim used by the next auto-detect (kept in sync with the setting). */
+let currentTrim = 'normal';
+const TRIM_HINT = 'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.';
 const LANG_OPTIONS = [['Auto (follow Obsidian)', 'auto'], ['English', 'en'], ['中文', 'zh']];
 const ASPECT_OPTIONS = [['16:9', '16:9'], ['4:3', '4:3'], ['Auto', 'auto']];
 const FORMAT_OPTIONS = [['JPG', 'image/jpeg'], ['PNG', 'image/png']];
@@ -890,8 +901,10 @@ function fitCanvas(canvas, box) {
     st.width = `${Math.floor(canvas.width * k)}px`;
     st.height = `${Math.floor(canvas.height * k)}px`;
 }
-function addSelect(parent, label, opts, current, onChange) {
+function addSelect(parent, label, opts, current, onChange, hint) {
     const holder = parent.createEl('label', { cls: 'sfc-field' });
+    if (hint)
+        holder.setAttribute('title', hint);
     holder.createEl('span', { text: (0, i18n_1.t)(label) });
     const select = holder.createEl('select');
     for (const [caption, value] of opts) {
@@ -1277,7 +1290,7 @@ class QuadEditor {
         if (!ctx)
             return null;
         ctx.drawImage(this.view, 0, 0, t.width, t.height);
-        const detection = (0, detect_1.detectSlide)(ctx.getImageData(0, 0, t.width, t.height));
+        const detection = (0, detect_1.detectSlide)(ctx.getImageData(0, 0, t.width, t.height), { trim: currentTrim });
         const toNat = (p) => ({ x: p.x * this.natW / t.width, y: p.y * this.natH / t.height });
         return { detection, toNat };
     }
@@ -1525,6 +1538,11 @@ class CorrectSlideModal extends obsidian_1.Modal {
             this.requestPreview(false);
         });
         addSelect(toolbar, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { this.plugin.setPref('aspect', v); this.requestPreview(false); });
+        addSelect(toolbar, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => {
+            this.plugin.setPref('trim', v);
+            if (this.editor?.origin === 'auto')
+                this.editor.autoDetect(); // re-run only if the frame is still the detector's own
+        }, (0, i18n_1.t)(TRIM_HINT));
         addSelect(toolbar, 'Color', COLOR_OPTIONS, prefs.color, v => { this.plugin.setPref('color', v); this.requestPreview(false); });
         addSelect(toolbar, 'Tone', TONE_OPTIONS, prefs.tone, v => { this.plugin.setPref('tone', v); this.requestPreview(false); });
         addSelect(toolbar, 'Save as', FORMAT_OPTIONS, prefs.format, v => this.plugin.setPref('format', v));
@@ -1675,6 +1693,12 @@ class BatchModal extends obsidian_1.Modal {
             this.refreshPreviews();
         });
         addSelect(toolbar, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { this.plugin.setPref('aspect', v); this.refreshPreviews(); });
+        addSelect(toolbar, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => {
+            this.plugin.setPref('trim', v);
+            for (const c of this.cards)
+                if (c.editor?.origin === 'auto')
+                    c.editor.autoDetect();
+        }, (0, i18n_1.t)(TRIM_HINT));
         addSelect(toolbar, 'Color', COLOR_OPTIONS, prefs.color, v => { this.plugin.setPref('color', v); this.refreshPreviews(); });
         addSelect(toolbar, 'Tone', TONE_OPTIONS, prefs.tone, v => { this.plugin.setPref('tone', v); this.refreshPreviews(); });
         addSelect(toolbar, 'Save as', FORMAT_OPTIONS, prefs.format, v => this.plugin.setPref('format', v));
@@ -2036,6 +2060,7 @@ class SlideFrameSettingTab extends obsidian_1.PluginSettingTab {
         dropdown('Aspect ratio', 'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.', ASPECT_OPTIONS, 'aspect');
         dropdown('Save as', 'File format of the corrected image.', FORMAT_OPTIONS, 'format');
         new obsidian_1.Setting(containerEl).setName((0, i18n_1.t)('Crop to slide')).setDesc((0, i18n_1.t)('Off keeps the whole photo and only applies color/tone.')).addToggle(tg => tg.setValue(this.plugin.prefs.crop).onChange(v => this.plugin.setPref('crop', v)));
+        dropdown('Edge trim', TRIM_HINT, TRIM_OPTIONS, 'trim');
         dropdown('Color correction', 'Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.', COLOR_OPTIONS, 'color');
         dropdown('Tone', 'Color, grayscale, or pure black & white (applied after color correction).', TONE_OPTIONS, 'tone');
         new obsidian_1.Setting(containerEl).setName((0, i18n_1.t)('Clean originals')).setDesc((0, i18n_1.t)('Move original photos that already have a corrected version and are no longer used in any note to the trash. You confirm the list first.'))
@@ -2058,6 +2083,8 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
         this.prefs[key] = value;
         if (key === 'lang')
             (0, i18n_1.setLang)(value);
+        if (key === 'trim')
+            currentTrim = value;
         this.persist();
     }
     addRecord(path, rec) { this.records[path] = rec; this.persist(); }
@@ -2106,9 +2133,11 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
             color: pick(saved.color, COLOR_OPTIONS, DEFAULT_PREFS.color),
             tone: pick(saved.tone, TONE_OPTIONS, DEFAULT_PREFS.tone),
             crop: typeof saved.crop === 'boolean' ? saved.crop : DEFAULT_PREFS.crop,
-            lang: pick(saved.lang, LANG_OPTIONS, DEFAULT_PREFS.lang)
+            lang: pick(saved.lang, LANG_OPTIONS, DEFAULT_PREFS.lang),
+            trim: pick(saved.trim, TRIM_OPTIONS, DEFAULT_PREFS.trim)
         };
         (0, i18n_1.setLang)(this.prefs.lang);
+        currentTrim = this.prefs.trim;
         this.records = saved.records && typeof saved.records === 'object' ? saved.records : {};
         this.drafts = saved.drafts && typeof saved.drafts === 'object' ? saved.drafts : {};
         this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {

@@ -142,3 +142,15 @@ test('refineQuad pulls edges in past a thin dark bezel and leaves clean edges al
   const dr=d.refineQuad(dark,W,H,outer);
   dr.forEach((p,i)=>{assert.equal(p.x,outer[i].x);assert.equal(p.y,outer[i].y);});
 });
+
+test('wide edge trim reaches a thicker band than normal, and off leaves the frame alone',()=>{
+  const W=320,H=200;
+  const gray=new Float32Array(W*H);
+  // a 14px dark/gold band around a bright slide (normal reaches 5% of 200 = 10px, wide 12% = 24px)
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++)gray[y*W+x]=(x>=16&&x<W-16&&y>=16&&y<H-16)?225:60;
+  const outer=[{x:2,y:2},{x:W-3,y:2},{x:W-3,y:H-3},{x:2,y:H-3}];
+  const normal=d.refineQuad(gray,W,H,outer,'normal');
+  const wide=d.refineQuad(gray,W,H,outer,'wide');
+  assert.ok(normal[0].x<10,'normal stays outside: '+normal[0].x);
+  assert.ok(wide[0].x>=15&&wide[0].y>=15,'wide reaches the slide: '+JSON.stringify(wide[0]));
+});

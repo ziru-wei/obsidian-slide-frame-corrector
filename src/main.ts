@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, Menu, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile } from 'obsidian';
 import { parseImageRefs, ImageRef, makeReplacement, selectOccurrence } from './links';
-import { detectSlide } from './detect';
+import { detectSlide, Trim } from './detect';
 import { Quad, Point, insetQuad, outputSize, dist, distToSegment, isValidQuad } from './geometry';
 import { warpPixels } from './warp';
 import { t, setLang, Lang } from './i18n';
@@ -37,8 +37,12 @@ type Resolved = {ref: ImageRef; file: TFile};
 type Entry = Resolved & {note: TFile};
 type Aspect = 'auto'|'16:9'|'4:3';
 type OutputFormat = 'image/jpeg'|'image/png';
-type Prefs = {aspect: Aspect; format: OutputFormat; color: ColorMode; tone: Tone; crop: boolean; lang: Lang};
-const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto'};
+type Prefs = {aspect: Aspect; format: OutputFormat; color: ColorMode; tone: Tone; crop: boolean; lang: Lang; trim: Trim};
+const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto', trim:'normal'};
+const TRIM_OPTIONS: [string,string][] = [['Off','off'],['Normal','normal'],['Wide ⚠','wide']];
+/** Edge trim used by the next auto-detect (kept in sync with the setting). */
+let currentTrim: Trim = 'normal';
+const TRIM_HINT='Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.';
 const LANG_OPTIONS: [string,string][] = [['Auto (follow Obsidian)','auto'],['English','en'],['中文','zh']];
 const ASPECT_OPTIONS: [string,string][] = [['16:9','16:9'],['4:3','4:3'],['Auto','auto']];
 const FORMAT_OPTIONS: [string,string][] = [['JPG','image/jpeg'],['PNG','image/png']];
@@ -87,8 +91,9 @@ function fitCanvas(canvas:HTMLCanvasElement,box:HTMLElement):void {
   st.maxHeight='none';st.maxWidth='none';
   st.width=`${Math.floor(canvas.width*k)}px`;st.height=`${Math.floor(canvas.height*k)}px`;
 }
-function addSelect(parent:HTMLElement,label:string,opts:[string,string][],current:string,onChange:(value:string)=>void):void {
+function addSelect(parent:HTMLElement,label:string,opts:[string,string][],current:string,onChange:(value:string)=>void,hint?:string):void {
   const holder=parent.createEl('label',{cls:'sfc-field'});
+  if(hint)holder.setAttribute('title',hint);
   holder.createEl('span',{text:t(label)});
   const select=holder.createEl('select');
   for(const [caption,value] of opts) {
@@ -330,7 +335,7 @@ class QuadEditor {
     const ctx=t.getContext('2d',{willReadFrequently:true});
     if(!ctx)return null;
     ctx.drawImage(this.view,0,0,t.width,t.height);
-    const detection=detectSlide(ctx.getImageData(0,0,t.width,t.height));
+    const detection=detectSlide(ctx.getImageData(0,0,t.width,t.height),{trim:currentTrim});
     const toNat=(p:Point)=>({x:p.x*this.natW/t.width,y:p.y*this.natH/t.height});
     return {detection,toNat};
   }
@@ -565,6 +570,10 @@ class CorrectSlideModal extends Modal {
       this.updateCropUi();this.requestPreview(false);
     });
     addSelect(toolbar,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{this.plugin.setPref('aspect',v as Aspect);this.requestPreview(false);});
+    addSelect(toolbar,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{
+      this.plugin.setPref('trim',v as Trim);
+      if(this.editor?.origin==='auto')this.editor.autoDetect(); // re-run only if the frame is still the detector's own
+    },t(TRIM_HINT));
     addSelect(toolbar,'Color',COLOR_OPTIONS,prefs.color,v=>{this.plugin.setPref('color',v as ColorMode);this.requestPreview(false);});
     addSelect(toolbar,'Tone',TONE_OPTIONS,prefs.tone,v=>{this.plugin.setPref('tone',v as Tone);this.requestPreview(false);});
     addSelect(toolbar,'Save as',FORMAT_OPTIONS,prefs.format,v=>this.plugin.setPref('format',v as OutputFormat));
@@ -699,6 +708,10 @@ class BatchModal extends Modal {
       this.refreshPreviews();
     });
     addSelect(toolbar,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{this.plugin.setPref('aspect',v as Aspect);this.refreshPreviews();});
+    addSelect(toolbar,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{
+      this.plugin.setPref('trim',v as Trim);
+      for(const c of this.cards)if(c.editor?.origin==='auto')c.editor.autoDetect();
+    },t(TRIM_HINT));
     addSelect(toolbar,'Color',COLOR_OPTIONS,prefs.color,v=>{this.plugin.setPref('color',v as ColorMode);this.refreshPreviews();});
     addSelect(toolbar,'Tone',TONE_OPTIONS,prefs.tone,v=>{this.plugin.setPref('tone',v as Tone);this.refreshPreviews();});
     addSelect(toolbar,'Save as',FORMAT_OPTIONS,prefs.format,v=>this.plugin.setPref('format',v as OutputFormat));
@@ -973,6 +986,7 @@ class SlideFrameSettingTab extends PluginSettingTab {
     dropdown('Aspect ratio','Output shape of the corrected slide. These choices are also remembered when you change them in the editor.',ASPECT_OPTIONS,'aspect');
     dropdown('Save as','File format of the corrected image.',FORMAT_OPTIONS,'format');
     new Setting(containerEl).setName(t('Crop to slide')).setDesc(t('Off keeps the whole photo and only applies color/tone.')).addToggle(tg=>tg.setValue(this.plugin.prefs.crop).onChange(v=>this.plugin.setPref('crop',v)));
+    dropdown('Edge trim',TRIM_HINT,TRIM_OPTIONS,'trim');
     dropdown('Color correction','Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.',COLOR_OPTIONS,'color');
     dropdown('Tone','Color, grayscale, or pure black & white (applied after color correction).',TONE_OPTIONS,'tone');
     new Setting(containerEl).setName(t('Clean originals')).setDesc(t('Move original photos that already have a corrected version and are no longer used in any note to the trash. You confirm the list first.'))
@@ -990,6 +1004,7 @@ export default class SlideFrameCorrector extends Plugin {
   setPref<K extends keyof Prefs>(key:K,value:Prefs[K]):void {
     this.prefs[key]=value;
     if(key==='lang')setLang(value as Lang);
+    if(key==='trim')currentTrim=value as Trim;
     this.persist();
   }
   addRecord(path:string,rec:Rec):void {this.records[path]=rec;this.persist();}
@@ -1027,9 +1042,11 @@ export default class SlideFrameCorrector extends Plugin {
       color:pick(saved.color,COLOR_OPTIONS,DEFAULT_PREFS.color),
       tone:pick(saved.tone,TONE_OPTIONS,DEFAULT_PREFS.tone),
       crop:typeof saved.crop==='boolean'?saved.crop:DEFAULT_PREFS.crop,
-      lang:pick(saved.lang,LANG_OPTIONS,DEFAULT_PREFS.lang)
+      lang:pick(saved.lang,LANG_OPTIONS,DEFAULT_PREFS.lang),
+      trim:pick(saved.trim,TRIM_OPTIONS,DEFAULT_PREFS.trim)
     };
     setLang(this.prefs.lang);
+    currentTrim=this.prefs.trim;
     this.records=saved.records&&typeof saved.records==='object'?saved.records:{};
     this.drafts=saved.drafts&&typeof saved.drafts==='object'?saved.drafts:{};
     this.registerEvent(this.app.vault.on('rename',(file,oldPath)=>{
