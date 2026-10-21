@@ -38,11 +38,11 @@ type Entry = Resolved & {note: TFile};
 type Aspect = 'auto'|'16:9'|'4:3';
 type OutputFormat = 'image/jpeg'|'image/png';
 type Prefs = {aspect: Aspect; format: OutputFormat; color: ColorMode; tone: Tone; crop: boolean; lang: Lang; trim: Trim};
-const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto', trim:'normal'};
+const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto', trim:'xwide'};
 type Opt = [string,string,string?]; // caption, value, optional Lucide icon
 const TRIM_OPTIONS: Opt[] = [['Off','off'],['Normal','normal'],['Wide ⚠','wide'],['Extra wide ⚠⚠','xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
-let currentTrim: Trim = 'normal';
+let currentTrim: Trim = 'xwide';
 const TRIM_HINT='Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.';
 const LANG_OPTIONS: [string,string][] = [['Auto (follow Obsidian)','auto'],['English','en'],['中文','zh']];
 const ASPECT_OPTIONS: [string,string][] = [['16:9','16:9'],['4:3','4:3'],['Auto','auto']];

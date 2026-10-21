@@ -979,10 +979,10 @@ function noteDraft(plugin, file, editor, sameAsSaved = false) {
     else if (editor.origin === 'auto')
         plugin.clearDraft(file.path);
 }
-const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto', trim: 'normal' };
+const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto', trim: 'xwide' };
 const TRIM_OPTIONS = [['Off', 'off'], ['Normal', 'normal'], ['Wide ⚠', 'wide'], ['Extra wide ⚠⚠', 'xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
-let currentTrim = 'normal';
+let currentTrim = 'xwide';
 const TRIM_HINT = 'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.';
 const LANG_OPTIONS = [['Auto (follow Obsidian)', 'auto'], ['English', 'en'], ['中文', 'zh']];
 const ASPECT_OPTIONS = [['16:9', '16:9'], ['4:3', '4:3'], ['Auto', 'auto']];
