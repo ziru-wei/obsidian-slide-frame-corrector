@@ -1,6 +1,6 @@
 import { App, Editor, MarkdownView, Menu, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, setIcon } from 'obsidian';
 import { parseImageRefs, ImageRef, makeReplacement, selectOccurrence } from './links';
-import { detectSlide, Trim } from './detect';
+import { detectSlide, refineQuad, Trim } from './detect';
 import { Quad, Point, insetQuad, outputSize, dist, distToSegment, isValidQuad } from './geometry';
 import { warpPixels } from './warp';
 import { t, setLang, Lang } from './i18n';
@@ -197,7 +197,7 @@ function addGroup(parent:HTMLElement,title:string,icon:string,toggle:{checked:bo
   return {body,setEnabled};
 }
 type ToolbarHooks = {
-  onCrop:(on:boolean)=>void; onAspect:()=>void; onTrim:()=>void; onColor:()=>void; onTone:()=>void;
+  onCrop:(on:boolean)=>void; onAspect:()=>void; onTrim:(level:Trim)=>void; onColor:()=>void; onTone:()=>void;
   frameExtras:(body:HTMLElement)=>void;
 };
 /** Two groups, each with its own switch: Correct (the frame/crop) and Color (colour correction + tone). */
@@ -206,7 +206,7 @@ function buildToolbar(parent:HTMLElement,plugin:SlideFrameCorrector,h:ToolbarHoo
   const bar=parent.createDiv({cls:'sfc-toolbar'});
   const frame=addGroup(bar,'Correct','crop',{checked:prefs.crop,onChange:on=>{plugin.setPref('crop',on);h.onCrop(on);}});
   addSegmented(frame.body,null,ASPECT_OPTIONS,prefs.aspect,v=>{plugin.setPref('aspect',v as Aspect);h.onAspect();},t('Aspect'));
-  addStepSlider(frame.body,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim();},t(TRIM_HINT));
+  addStepSlider(frame.body,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim(v as Trim);},t(TRIM_HINT));
   const extras=frame.body.createDiv({cls:'sfc-ctl sfc-ctl-buttons'});
   h.frameExtras(extras);
   frame.setEnabled(prefs.crop);
@@ -395,10 +395,10 @@ class QuadEditor {
   }
   /** Put back a frame set aside earlier (used when auto-detect-all is switched off). */
   restore(q:Quad,origin:'auto'|'user'|'restored'):void {
-    this.quad=q.map(v=>({...v})) as Quad;this.cycle=null;this.autoResult=false;this.origin=origin;
+    this.quad=q.map(v=>({...v})) as Quad;this.cycle=null;this.autoResult=false;this.origin=origin;this.trimBase=null;
     this.draw();this.onChange(true);
   }
-  setQuad(q:Quad):void {this.quad=q.map(v=>({...v})) as Quad;this.cycle=null;this.autoResult=false;this.origin='user';this.draw();this.onChange(true);}
+  setQuad(q:Quad):void {this.quad=q.map(v=>({...v})) as Quad;this.cycle=null;this.autoResult=false;this.origin='user';this.trimBase=null;this.draw();this.onChange(true);}
   /** With crop off the frame is hidden and cannot be edited. */
   setEnabled(on:boolean):void {
     this.enabled=on;
@@ -416,8 +416,8 @@ class QuadEditor {
   markInitial():void {this.initial={quad:this.quad.map(v=>({...v})) as Quad,origin:this.origin,auto:this.autoResult};}
   reset():void {
     const i=this.initial;
-    if(i){this.quad=i.quad.map(v=>({...v})) as Quad;this.autoResult=i.auto;this.origin=i.origin==='auto'?'auto':'user';}
-    else{this.quad=insetQuad(this.natW,this.natH);this.autoResult=false;this.origin='user';}
+    if(i){this.quad=i.quad.map(v=>({...v})) as Quad;this.autoResult=i.auto;this.origin=i.origin==='auto'?'auto':'user';this.trimBase=null;}
+    else{this.quad=insetQuad(this.natW,this.natH);this.autoResult=false;this.origin='user';this.trimBase=null;}
     this.cycle=null;this.draw();this.onChange(true);
   }
   /** Key 1-4: jump that corner to the next candidate vertex, best edge support first (line intersections and line/photo-border crossings, then the photo/inset corners). */
@@ -439,10 +439,34 @@ class QuadEditor {
     c.index=(c.index+dir+c.list.length)%c.list.length;
     const q=this.quad.map(v=>({...v})) as Quad;
     q[corner]=c.list[c.index];
-    this.quad=q;this.autoResult=false;this.origin='user';
+    this.quad=q;this.autoResult=false;this.origin='user';this.trimBase=null;
     this.draw();this.onChange(true);
   }
   private candidatesPending=false;
+  /** The frame as it was before edge trim was applied to a hand-made/restored frame, so moving the trim slider back undoes it. */
+  private trimBase:Quad|null=null;
+  /** Apply the edge-trim level to the current frame whatever its origin: a detector frame is simply re-detected,
+   *  a hand-made or restored frame is pulled inward from the frame it had before (so levels do not pile up). */
+  applyTrim(level:Trim):void {
+    if(this.origin==='auto'){this.autoDetect();return;}
+    const base=this.trimBase??this.quad.map(v=>({...v})) as Quad;
+    const scale=Math.min(1,640/Math.max(this.natW,this.natH));
+    const w=Math.round(this.natW*scale),h=Math.round(this.natH*scale);
+    let next=base;
+    if(level!=='off'){
+      const c=document.createElement('canvas');c.width=w;c.height=h;
+      const ctx=c.getContext('2d',{willReadFrequently:true});
+      if(!ctx)return;
+      ctx.drawImage(this.view,0,0,w,h);
+      const d=ctx.getImageData(0,0,w,h).data,gray=new Float32Array(w*h);
+      for(let i=0;i<w*h;i++)gray[i]=.2126*d[4*i]+.7152*d[4*i+1]+.0722*d[4*i+2];
+      const small=base.map(p=>({x:p.x*w/this.natW,y:p.y*h/this.natH})) as Quad;
+      next=refineQuad(gray,w,h,small,level).map(p=>({x:p.x*this.natW/w,y:p.y*this.natH/h})) as Quad;
+    }
+    this.quad=next;this.cycle=null;this.autoResult=false;this.origin='user';
+    this.trimBase=level==='off'?null:base;
+    this.draw();this.onChange(true);
+  }
   private runDetection() {
     const scale=Math.min(1,640/Math.max(this.natW,this.natH));
     const t=document.createElement('canvas');t.width=Math.round(this.natW*scale);t.height=Math.round(this.natH*scale);
@@ -464,7 +488,7 @@ class QuadEditor {
   autoDetect(preset?:Quad):boolean {
     if(preset){
       this.quad=preset.map(v=>({...v})) as Quad;
-      this.candidatesPending=true;this.cycle=null;this.autoResult=false;this.origin='restored';
+      this.candidatesPending=true;this.cycle=null;this.autoResult=false;this.origin='restored';this.trimBase=null;
       this.draw();this.onChange(true);
       return false;
     }
@@ -473,7 +497,7 @@ class QuadEditor {
     this.candidatesPending=false;
     this.quad=r.detection.quad.map(r.toNat) as Quad;
     this.candidates=r.detection.corners.map(list=>list.map(c=>({...r.toNat(c),score:c.score})));
-    this.cycle=null;this.autoResult=r.detection.confident;this.origin='auto';
+    this.cycle=null;this.autoResult=r.detection.confident;this.origin='auto';this.trimBase=null;
     this.draw();this.onChange(true);
     return this.autoResult;
   }
@@ -587,14 +611,14 @@ class QuadEditor {
       // Clicking a candidate applies it.
       const corner=this.cycle.corner,q=this.quad.map(v=>({...v})) as Quad;
       q[corner]=this.cycle.list[ci];
-      if(isValidQuad(q,this.natW,this.natH)){this.quad=q;this.cycle.index=ci;this.autoResult=false;this.origin='user';this.draw();this.onChange(true);}
+      if(isValidQuad(q,this.natW,this.natH)){this.quad=q;this.cycle.index=ci;this.autoResult=false;this.origin='user';this.trimBase=null;this.draw();this.onChange(true);}
       event.preventDefault();return;
     }
     const hit=this.hit(location);
     if(!hit)return;
     this.ensureCandidates();
     if(!(hit.kind==='corner'&&this.cycle?.corner===hit.index))this.cycle=null;
-    this.autoResult=false;this.origin='user';
+    this.autoResult=false;this.origin='user';this.trimBase=null;
     this.active=hit;this.dragging=true;
     this.startQuad=this.quad.map(v=>({...v})) as Quad;this.startPoint=location;
     this.canvas.setPointerCapture(event.pointerId);
@@ -676,7 +700,7 @@ class CorrectSlideModal extends Modal {
     this.toolbar=buildToolbar(this.contentEl,this.plugin,{
       onCrop:on=>{this.editor?.setEnabled(on);this.requestPreview(false);},
       onAspect:()=>this.requestPreview(false),
-      onTrim:()=>{if(this.editor?.origin==='auto')this.editor.autoDetect();}, // re-run only if the frame is still the detector's own
+      onTrim:level=>this.editor?.applyTrim(level),
       onColor:()=>this.requestPreview(false),
       onTone:()=>this.requestPreview(false),
       frameExtras:body=>{
@@ -808,7 +832,7 @@ class BatchModal extends Modal {
     buildToolbar(this.contentEl,this.plugin,{
       onCrop:on=>{for(const c of this.cards)c.editor?.setEnabled(on);this.refreshPreviews();},
       onAspect:()=>this.refreshPreviews(),
-      onTrim:()=>{for(const c of this.cards)if(c.editor?.origin==='auto')c.editor.autoDetect();},
+      onTrim:level=>{for(const c of this.cards)c.editor?.applyTrim(level);},
       onColor:()=>this.refreshPreviews(),
       onTone:()=>this.refreshPreviews(),
       frameExtras:body=>{
