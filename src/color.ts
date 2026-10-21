@@ -64,6 +64,35 @@ export function flattenBackground(img: ImageData, strength: number, fine = false
     }
     return out;
   };
+  // Cells that are not slide background at all (a large dark or strongly coloured picture) must not be "corrected":
+  // dividing a photo by its own brightness blows it out. Detect them and fill their background estimate from the
+  // surrounding background cells instead.
+  const lum = (b: number): number => .2126 * bg[b*3] + .7152 * bg[b*3+1] + .0722 * bg[b*3+2];
+  const sat = (b: number): number => { const mx = Math.max(bg[b*3], bg[b*3+1], bg[b*3+2]); return mx > 0 ? (mx - Math.min(bg[b*3], bg[b*3+1], bg[b*3+2])) / mx : 0; };
+  const lums: number[] = [];
+  for (let b = 0; b < nb; b++) lums.push(lum(b));
+  const ref95 = [...lums].sort((a, b) => a - b)[Math.floor(nb * 0.95)] || 255;
+  const valid: boolean[] = [];
+  for (let b = 0; b < nb; b++) // slide background is neutral or only faintly tinted; anything clearly coloured and not near-white is a picture
+    valid.push(!(lums[b] < 0.45 * ref95 || (sat(b) > 0.25 && lums[b] < 0.85 * ref95)));
+  if (valid.filter(Boolean).length < Math.max(3, nb * 0.2)) return; // no clear background to learn from
+  for (let pass = 0; pass < gx + gy && valid.some(v => !v); pass++) {
+    const fill: [number, number[]][] = [];
+    for (let y = 0; y < gy; y++) for (let x = 0; x < gx; x++) {
+      const b = y * gx + x;
+      if (valid[b]) continue;
+      const acc = [0, 0, 0]; let cnt = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy < 0 || yy >= gy || xx < 0 || xx >= gx || !valid[yy * gx + xx]) continue;
+        const nb2 = yy * gx + xx;
+        acc[0] += bg[nb2*3]; acc[1] += bg[nb2*3+1]; acc[2] += bg[nb2*3+2]; cnt++;
+      }
+      if (cnt) fill.push([b, acc.map(v => v / cnt)]);
+    }
+    if (!fill.length) break;
+    for (const [b, v] of fill) { bg[b*3] = v[0]; bg[b*3+1] = v[1]; bg[b*3+2] = v[2]; valid[b] = true; }
+  }
   // a cell darker than its neighbourhood is mostly picture/text, not background: lift it to the neighbourhood median
   bg = filter(bg, v => Math.max(v[4], [...v].sort((a, b) => a - b)[4]));
   bg = filter(bg, v => v.reduce((a, b) => a + b, 0) / v.length);
@@ -107,8 +136,8 @@ export function autoColor(img: ImageData, strength: number, pure = false): void 
     st = stats(img.data);
   }
   const d = img.data, n = d.length / 4;
-  const hiP = lightSlide ? (pure ? 0.85 : 0.92) : 0.995;
-  const CONTRAST = pure && lightSlide ? 1 : 0.75; // 0 = linear levels only, 1 = full smoothstep
+  const hiP = lightSlide ? (pure ? 0.9 : 0.92) : 0.995;
+  const CONTRAST = pure && lightSlide ? 0.9 : 0.75; // 0 = linear levels only, 1 = full smoothstep
   const luts: Uint8ClampedArray[] = [];
   for (let c = 0; c < 3; c++) {
     const lo = st.percentile(st.hist[c], 0.005), hi = st.percentile(st.hist[c], hiP);

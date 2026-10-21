@@ -112,7 +112,7 @@ test('autoColor evens out a lighting/tint gradient on a light slide',()=>{
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){
     const p=4*(y*W+x),t=x/(W-1);
     // background drifts from dim and blue (left) to bright and warm (right)
-    let r=150+90*t,g=175+70*t,b=235-10*t;
+    let r=185+55*t,g=205+40*t,b=240-5*t;
     if((x%23)<2&&(y%7)<5){r=g=b=40;} // a few dark "text" strokes
     img.data[p]=r;img.data[p+1]=g;img.data[p+2]=b;
   }
@@ -183,4 +183,25 @@ test('autoColor with pure background pushes a faint grey/tinted slide background
   const px=(x,y)=>{const p=4*(y*W+x);return [img.data[p],img.data[p+1],img.data[p+2]];};
   for(const [x,y] of [[10,10],[100,100],[190,20]]){const v=px(x,y);assert.ok(v.every(c=>c>=252),`bg ${x},${y}: ${v}`);}
   assert.ok(px(100,53).every(c=>c<90),'text stays dark: '+px(100,53));
+});
+
+test('autoColor leaves a large dark picture on a light slide alone instead of blowing it out',()=>{
+  const W=320,H=200;
+  const img=makeImage(W,H,()=>0);
+  const inPic=(x,y)=>x>=20&&x<190&&y>=30&&y<170;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const p=4*(y*W+x);
+    let r=232,g=234,b=238;
+    if(inPic(x,y)){const k=(y-30)/140;r=70+40*k;g=55+30*k;b=35+15*k;} // dark brown picture, lighter towards the bottom
+    img.data[p]=r;img.data[p+1]=g;img.data[p+2]=b;
+  }
+  const before=[...img.data];
+  for(const pure of [false,true]){
+    const copy={width:W,height:H,data:new Uint8ClampedArray(before)};
+    modules.color.autoColor(copy,1,pure);
+    const mid=4*(100*W+100);
+    assert.ok(copy.data[mid]<=before[mid]+45,`pure=${pure} picture centre R ${before[mid]} -> ${copy.data[mid]}`);
+    const bg=4*(20*W+280);
+    assert.ok(copy.data[bg]>=250&&copy.data[bg+1]>=250&&copy.data[bg+2]>=250,'background white');
+  }
 });
