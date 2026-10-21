@@ -124,3 +124,21 @@ test('autoColor evens out a lighting/tint gradient on a light slide',()=>{
     assert.ok(Math.abs(left[c]-right[c])<14);
   }
 });
+
+test('refineQuad pulls edges in past a thin dark bezel and leaves clean edges alone',()=>{
+  const W=200,H=120;
+  const gray=new Float32Array(W*H);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++)gray[y*W+x]=(x>=8&&x<=191&&y>=6&&y<=113)?220:30;
+  const outer=[{x:2,y:2},{x:197,y:2},{x:197,y:117},{x:2,y:117}];
+  const r=d.refineQuad(gray,W,H,outer);
+  assert.ok(r[0].x>=8&&r[0].x<=11&&r[0].y>=6&&r[0].y<=9,JSON.stringify(r[0]));
+  assert.ok(r[2].x<=192&&r[2].x>=189&&r[2].y<=114&&r[2].y>=111,JSON.stringify(r[2]));
+  // an already tight frame stays put
+  const tight=[{x:9,y:7},{x:190,y:7},{x:190,y:112},{x:9,y:112}];
+  const same=d.refineQuad(gray,W,H,tight);
+  tight.forEach((p,i)=>{assert.ok(Math.abs(same[i].x-p.x)<1.5&&Math.abs(same[i].y-p.y)<1.5);});
+  // a dark slide is never "refined"
+  const dark=new Float32Array(W*H).fill(40);
+  const dr=d.refineQuad(dark,W,H,outer);
+  dr.forEach((p,i)=>{assert.equal(p.x,outer[i].x);assert.equal(p.y,outer[i].y);});
+});

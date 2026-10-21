@@ -8,6 +8,54 @@ type Line = { a:number; b:number; r:number; votes:number; atCenter:number };
 const RAD=Math.PI/180;
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 
+/** Pulls each edge of a detected frame inward past a thin dark band (the screen bezel or wall between the frame line
+ *  and the lit slide). Each edge slides inward until the brightness along it reaches the interior level; edges
+ *  without such a band, dark slides, and anything that would need a large move are left alone. */
+export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad): Quad {
+  const maxShift = Math.max(3, Math.round(0.05 * Math.min(w, h)));
+  const cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
+  type L = { p: Point; dx: number; dy: number };
+  const lines: L[] = [];
+  for (let i = 0; i < 4; i++) {
+    const a = q[i], b = q[(i + 1) % 4];
+    const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len;
+    if ((cx - a.x) * nx + (cy - a.y) * ny < 0) { nx = -nx; ny = -ny; }
+    const raw: number[] = [];
+    for (let k = 0; k <= maxShift + 6; k++) {
+      let sum = 0, cnt = 0;
+      for (let s = 0; s < 40; s++) {
+        const t = 0.1 + 0.8 * s / 39;
+        const x = Math.round(a.x + dx * t + nx * k), y = Math.round(a.y + dy * t + ny * k);
+        if (x >= 0 && x < w && y >= 0 && y < h) { sum += gray[y * w + x]; cnt++; }
+      }
+      raw.push(cnt ? sum / cnt : NaN);
+    }
+    const prof = raw.map((v, k) => {
+      const win = [raw[k - 1], v, raw[k + 1]].filter(x => x !== undefined && !Number.isNaN(x)) as number[];
+      return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
+    });
+    let ref = 0;
+    for (let k = 2; k < prof.length; k++) if (prof[k] > ref) ref = prof[k];
+    let shift = 0;
+    if (ref >= 110 && prof[0] < 0.72 * ref) {
+      // the 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
+      for (let k = 1; k <= maxShift + 1; k++) {
+        if (prof[k] >= 0.85 * ref && prof[Math.min(k + 2, prof.length - 1)] >= 0.8 * ref) { shift = k; break; }
+      }
+    }
+    lines.push({ p: { x: a.x + nx * shift, y: a.y + ny * shift }, dx, dy });
+  }
+  const out = q.map((orig, i) => {
+    const l1 = lines[(i + 3) % 4], l2 = lines[i];
+    const det = l1.dx * l2.dy - l1.dy * l2.dx;
+    if (Math.abs(det) < 1e-6) return orig;
+    const t = ((l2.p.x - l1.p.x) * l2.dy - (l2.p.y - l1.p.y) * l2.dx) / det;
+    return { x: l1.p.x + l1.dx * t, y: l1.p.y + l1.dy * t };
+  }) as Quad;
+  return isValidQuad(out, w, h) && quadArea(out) > quadArea(q) * 0.7 ? out : q;
+}
+
 /** Detect straight slide frame in a 640px-or-smaller ImageData, with a safe manual-edit fallback.
  * Hough peaks use gradient direction so small projected edges survive busy slide contents.
  */
@@ -165,5 +213,5 @@ export function detectSlide(img: ImageData): DetectionResult {
   }
   // Weak edges are not guessed as trustworthy. User can drag the inset fallback.
   if(!best||bestScore<.15)return {...fallback,corners:collect()};
-  return {quad:best,confident:bestScore>.25,score:bestScore,corners:collect()};
+  return {quad:refineQuad(gray,w,h,best),confident:bestScore>.25,score:bestScore,corners:collect()};
 }
