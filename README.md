@@ -12,7 +12,7 @@ Manual: copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian
 
 ### Editing the frame
 - Drag the four corners or the four edge handles; a loupe and crosshair help placement.
-- Press **1–4** to jump that corner to the next candidate vertex (best edge support first); **Shift+number** goes back. Click a yellow candidate ring to apply it.
+- Press **1–4** to jump that corner to the next candidate vertex (best edge support first)  Click a yellow candidate ring to apply it.
 - *Auto* detects the frame (green ✓ when confident). *Reset* returns to the frame the editor opened with.
 - Crop can be switched off to adjust only color/tone.
 

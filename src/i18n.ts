@@ -51,7 +51,7 @@ const ZH: Record<string, string> = {
   'Saving {0}/{1}…':'保存中 {0}/{1}…',
   '{0} shown':'显示 {0} 张',
   ' · {0} processed hidden':' · 已隐藏 {0} 张已处理',
-  'Number key: next corner candidate · Shift+number: previous candidate':'数字键：切换候选角点；Shift+数字：回到上一个候选',
+  'Number key: next corner candidate':'数字键：切换候选角点',
   '1 · Adjust frame':'1 · 调整框','Photo {0}':'照片 {0}','Image':'图片','Image path':'图片路径','Original path':'原图路径','Copied':'已复制','More':'更多',
   'Saved corrected slide.':'已保存校正后的幻灯片。',
   'All {0} photos in this note are already processed. Tick “Show processed” to re-edit one.':'本笔记中的 {0} 张照片都已处理。勾选“显示已处理”可重新编辑。',

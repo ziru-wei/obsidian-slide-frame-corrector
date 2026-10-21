@@ -225,7 +225,7 @@ function buildFileBar(parent:HTMLElement,plugin:SlideFrameCorrector,extras:(body
   addSegmented(parent,'Save as',FORMAT_OPTIONS,plugin.prefs.format,v=>plugin.setPref('format',v as OutputFormat));
   extras(parent);
 }
-const KEY_HINT='Number key: next corner candidate · Shift+number: previous candidate';
+const KEY_HINT='Number key: next corner candidate';
 /** The "…" menu: file name and paths live here instead of on the page; clicking a row copies it. */
 function showInfoMenu(ev:MouseEvent,rows:[string,string][]):void {
   const menu=new Menu();
@@ -568,9 +568,9 @@ class QuadEditor {
     }
   }
   /** Called by the plugin's key handler; returns true when the key was used. */
-  handleKey(key:string,shift:boolean):boolean {
+  handleKey(key:string):boolean {
     if(!this.enabled||!this.canvas.isConnected||!'1234'.includes(key)||key.length!==1)return false;
-    this.cycleCorner(Number(key)-1,shift?-1:1);
+    this.cycleCorner(Number(key)-1,1);
     return true;
   }
   private location(event:PointerEvent):Point {
@@ -1182,7 +1182,7 @@ export default class SlideFrameCorrector extends Plugin {
       if(!activeEditor||event.ctrlKey||event.metaKey||event.altKey)return;
       const t=event.target;
       if(t instanceof HTMLElement&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))return;
-      if(activeEditor.handleKey(event.key,event.shiftKey)){event.preventDefault();event.stopPropagation();}
+      if(activeEditor.handleKey(event.key)){event.preventDefault();event.stopPropagation();}
     },true);
     this.addCommand({
       id:'correct-slide-in-current-note',

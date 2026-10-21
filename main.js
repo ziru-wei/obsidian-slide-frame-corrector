@@ -1,4 +1,4 @@
-/* Slide Frame Corrector 0.2.1 — compiled plugin, no runtime network requests */
+/* Slide Frame Corrector 0.2.2 — compiled plugin, no runtime network requests */
 (function(){
 const __modules={
 "./geometry": function(module,exports,require){
@@ -903,7 +903,7 @@ const ZH = {
     'Saving {0}/{1}…': '保存中 {0}/{1}…',
     '{0} shown': '显示 {0} 张',
     ' · {0} processed hidden': ' · 已隐藏 {0} 张已处理',
-    'Number key: next corner candidate · Shift+number: previous candidate': '数字键：切换候选角点；Shift+数字：回到上一个候选',
+    'Number key: next corner candidate': '数字键：切换候选角点',
     '1 · Adjust frame': '1 · 调整框', 'Photo {0}': '照片 {0}', 'Image': '图片', 'Image path': '图片路径', 'Original path': '原图路径', 'Copied': '已复制', 'More': '更多',
     'Saved corrected slide.': '已保存校正后的幻灯片。',
     'All {0} photos in this note are already processed. Tick “Show processed” to re-edit one.': '本笔记中的 {0} 张照片都已处理。勾选“显示已处理”可重新编辑。',
@@ -1200,7 +1200,7 @@ function buildFileBar(parent, plugin, extras) {
     addSegmented(parent, 'Save as', FORMAT_OPTIONS, plugin.prefs.format, v => plugin.setPref('format', v));
     extras(parent);
 }
-const KEY_HINT = 'Number key: next corner candidate · Shift+number: previous candidate';
+const KEY_HINT = 'Number key: next corner candidate';
 /** The "…" menu: file name and paths live here instead of on the page; clicking a row copies it. */
 function showInfoMenu(ev, rows) {
     const menu = new obsidian_1.Menu();
@@ -1758,10 +1758,10 @@ class QuadEditor {
         }
     }
     /** Called by the plugin's key handler; returns true when the key was used. */
-    handleKey(key, shift) {
+    handleKey(key) {
         if (!this.enabled || !this.canvas.isConnected || !'1234'.includes(key) || key.length !== 1)
             return false;
-        this.cycleCorner(Number(key) - 1, shift ? -1 : 1);
+        this.cycleCorner(Number(key) - 1, 1);
         return true;
     }
     location(event) {
@@ -2463,7 +2463,7 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
             const t = event.target;
             if (t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))
                 return;
-            if (activeEditor.handleKey(event.key, event.shiftKey)) {
+            if (activeEditor.handleKey(event.key)) {
                 event.preventDefault();
                 event.stopPropagation();
             }

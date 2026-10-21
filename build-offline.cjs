@@ -20,7 +20,7 @@ const compile=name=>{
   return transpiled.outputText;
 };
 const defs=names.map(n=>`"./${n}": function(module,exports,require){\n${compile(n)}\n}`).join(',\n');
-const output=`/* Slide Frame Corrector 0.2.1 — compiled plugin, no runtime network requests */\n(function(){\nconst __modules={\n${defs}\n};\nconst __cache={};\nfunction __load(id){\nif(!Object.prototype.hasOwnProperty.call(__modules,id))return require(id);\nif(__cache[id])return __cache[id].exports;\nconst m={exports:{}};__cache[id]=m;__modules[id](m,m.exports,__load);return m.exports;\n}\nmodule.exports=__load('./main');\n})();\n`;
+const output=`/* Slide Frame Corrector 0.2.2 — compiled plugin, no runtime network requests */\n(function(){\nconst __modules={\n${defs}\n};\nconst __cache={};\nfunction __load(id){\nif(!Object.prototype.hasOwnProperty.call(__modules,id))return require(id);\nif(__cache[id])return __cache[id].exports;\nconst m={exports:{}};__cache[id]=m;__modules[id](m,m.exports,__load);return m.exports;\n}\nmodule.exports=__load('./main');\n})();\n`;
 fs.writeFileSync(path.join(__dirname,'main.js'),output);
 const tests=`const M={${defs}};const cache={};function load(id){if(!M[id])throw new Error(id); if(cache[id])return cache[id].exports; const m={exports:{}};cache[id]=m;M[id](m,m.exports,load);return m.exports;}module.exports={geometry:load('./geometry'),links:load('./links'),warp:load('./warp'),detect:load('./detect'),color:load('./color')};\n`;
 fs.writeFileSync(path.join(__dirname,'tests','compiled.cjs'),tests);
