@@ -62,6 +62,7 @@ const ZH: Record<string, string> = {
   'Aspect ratio':'输出比例','Save as ':'保存格式',
   'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.':'校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
   'File format of the corrected image.':'校正后图片的文件格式。',
+  'Correct':'矫正','File':'文件','Strength':'强度',
   'Edge trim':'边缘内收','Wide ⚠':'宽 ⚠',
   'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.':'自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
   'Crop to slide':'裁切到幻灯片','Off keeps the whole photo and only applies color/tone.':'关闭后保留整张照片，只应用矫色和色调。',

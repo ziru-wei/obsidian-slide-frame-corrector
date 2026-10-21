@@ -209,17 +209,17 @@ exports.detectSlide = detectSlide;
 const geometry_1 = require("./geometry");
 const RAD = Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-/** How far an edge may move (fraction of the photo's short side) and how dark/bright the band and the interior must be.
- *  'wide' reaches past thicker bands but can cut into the slide; it is meant for slides with a light background. */
+/** `maxFrac`: how far an edge may move (fraction of the short side); wide only searches further, so it never moves less than normal. */
 const TRIM = {
-    normal: { maxFrac: 0.05, low: 0.72, reach: 0.85 },
-    wide: { maxFrac: 0.12, low: 0.8, reach: 0.8 },
+    normal: { maxFrac: 0.05, low: 0.80, reach: 0.90 },
+    wide: { maxFrac: 0.12, low: 0.85, reach: 0.90 },
 };
 function refineQuad(gray, w, h, q, trim = 'normal') {
     const cfg = TRIM[trim];
     const maxShift = Math.max(3, Math.round(cfg.maxFrac * Math.min(w, h)));
     const cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
     const lines = [];
+    const SEGMENTS = 12;
     for (let i = 0; i < 4; i++) {
         const a = q[i], b = q[(i + 1) % 4];
         const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
@@ -228,38 +228,81 @@ function refineQuad(gray, w, h, q, trim = 'normal') {
             nx = -nx;
             ny = -ny;
         }
-        const raw = [];
-        for (let k = 0; k <= maxShift + 6; k++) {
+        // brightness profile (distance inward from the frame line) for every segment
+        const segs = [];
+        for (let j = 0; j < SEGMENTS; j++) {
+            const t0 = 0.06 + 0.88 * j / SEGMENTS, t1 = 0.06 + 0.88 * (j + 1) / SEGMENTS;
+            const raw = [];
+            for (let k = 0; k <= maxShift + 6; k++) {
+                let sum = 0, cnt = 0;
+                for (let s = 0; s < 8; s++) {
+                    const t = t0 + (t1 - t0) * (s + 0.5) / 8;
+                    const x = Math.round(a.x + dx * t + nx * k), y = Math.round(a.y + dy * t + ny * k);
+                    if (x >= 0 && x < w && y >= 0 && y < h) {
+                        sum += gray[y * w + x];
+                        cnt++;
+                    }
+                }
+                raw.push(cnt ? sum / cnt : NaN);
+            }
+            segs.push({ t: (t0 + t1) / 2, raw });
+        }
+        // brightness of the slide itself near this edge
+        let ref = 0;
+        for (let k = 2; k <= maxShift + 6; k++) {
             let sum = 0, cnt = 0;
-            for (let s = 0; s < 40; s++) {
-                const t = 0.1 + 0.8 * s / 39;
-                const x = Math.round(a.x + dx * t + nx * k), y = Math.round(a.y + dy * t + ny * k);
-                if (x >= 0 && x < w && y >= 0 && y < h) {
-                    sum += gray[y * w + x];
+            for (const sg of segs)
+                if (!Number.isNaN(sg.raw[k])) {
+                    sum += sg.raw[k];
                     cnt++;
                 }
-            }
-            raw.push(cnt ? sum / cnt : NaN);
+            if (cnt && sum / cnt > ref)
+                ref = sum / cnt;
         }
-        const prof = raw.map((v, k) => {
-            const win = [raw[k - 1], v, raw[k + 1]].filter(x => x !== undefined && !Number.isNaN(x));
-            return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
-        });
-        let ref = 0;
-        for (let k = 2; k < prof.length; k++)
-            if (prof[k] > ref)
-                ref = prof[k];
-        let shift = 0;
-        if (ref >= 110 && prof[0] < cfg.low * ref) {
-            // the 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
-            for (let k = 1; k <= maxShift + 1; k++) {
-                if (prof[k] >= cfg.reach * ref && prof[Math.min(k + 2, prof.length - 1)] >= (cfg.reach - 0.05) * ref) {
-                    shift = k;
-                    break;
+        const pts = [];
+        if (ref >= 110) {
+            for (const sg of segs) {
+                // 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
+                const p = sg.raw.map((v, k) => {
+                    const win = [sg.raw[k - 1], v, sg.raw[k + 1]].filter(x => x !== undefined && !Number.isNaN(x));
+                    return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
+                });
+                if (!(p[0] < cfg.low * ref)) {
+                    pts.push({ t: sg.t, s: 0 });
+                    continue;
+                }
+                for (let k = 1; k <= maxShift + 1; k++) {
+                    if (p[k] >= cfg.reach * ref && p[Math.min(k + 2, p.length - 1)] >= (cfg.reach - 0.05) * ref) {
+                        pts.push({ t: sg.t, s: k });
+                        break;
+                    }
                 }
             }
         }
-        lines.push({ p: { x: a.x + nx * shift, y: a.y + ny * shift }, dx, dy });
+        // least-squares line s(t) = A + B t through the per-segment shifts, dropping outliers
+        let A = 0, B = 0;
+        if (pts.length >= 5) {
+            let use = pts;
+            for (let it = 0; it < 3; it++) {
+                const n = use.length;
+                const mt = use.reduce((m, p) => m + p.t, 0) / n, ms = use.reduce((m, p) => m + p.s, 0) / n;
+                let sxx = 0, sxy = 0;
+                for (const p of use) {
+                    sxx += (p.t - mt) ** 2;
+                    sxy += (p.t - mt) * (p.s - ms);
+                }
+                B = sxx > 1e-9 ? sxy / sxx : 0;
+                A = ms - B * mt;
+                const res = pts.map(p => Math.abs(p.s - (A + B * p.t)));
+                const sd = Math.sqrt(res.reduce((m, r) => m + r * r, 0) / res.length);
+                const next = pts.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
+                if (next.length < 4)
+                    break;
+                use = next;
+            }
+        }
+        const s0 = Math.min(maxShift, Math.max(0, A)), s1 = Math.min(maxShift, Math.max(0, A + B));
+        lines.push({ p: { x: a.x + nx * s0, y: a.y + ny * s0 }, dx: dx + nx * (s1 - s0), dy: dy + ny * (s1 - s0) });
     }
     const out = q.map((orig, i) => {
         const l1 = lines[(i + 3) % 4], l2 = lines[i];
@@ -768,6 +811,7 @@ const ZH = {
     'Aspect ratio': '输出比例', 'Save as ': '保存格式',
     'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.': '校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
     'File format of the corrected image.': '校正后图片的文件格式。',
+    'Correct': '矫正', 'File': '文件', 'Strength': '强度',
     'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠',
     'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
@@ -922,6 +966,82 @@ function addButton(parent, label, onClick) {
     const button = parent.createEl('button', { text: (0, i18n_1.t)(label), attr: { type: 'button' } });
     button.addEventListener('click', onClick);
     return button;
+}
+/** Segmented control: a few mutually exclusive choices side by side. */
+function addSegmented(parent, label, opts, current, onChange, hint) {
+    const el = parent.createDiv({ cls: 'sfc-ctl' });
+    if (hint)
+        el.setAttribute('title', hint);
+    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    const seg = el.createDiv({ cls: 'sfc-seg', attr: { role: 'group' } });
+    const btns = new Map();
+    const set = (v) => { for (const [val, b] of btns) {
+        b.toggleClass('is-active', val === v);
+        b.setAttribute('aria-pressed', String(val === v));
+    } };
+    for (const [caption, value] of opts) {
+        const b = seg.createEl('button', { text: (0, i18n_1.t)(caption), attr: { type: 'button' } });
+        btns.set(value, b);
+        b.addEventListener('click', () => { set(value); onChange(value); });
+    }
+    set(current);
+    return { el, set };
+}
+/** On/off switch. */
+function addSwitch(parent, label, checked, onChange, hint) {
+    const el = parent.createEl('label', { cls: 'sfc-ctl sfc-switch' });
+    if (hint)
+        el.setAttribute('title', hint);
+    const input = el.createEl('input', { attr: { type: 'checkbox' } });
+    input.checked = checked;
+    el.createEl('span', { cls: 'sfc-switch-track' });
+    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    input.addEventListener('change', () => onChange(input.checked));
+    return { el, input };
+}
+/** Slider over a few ordered levels, with the current level named next to it. */
+function addStepSlider(parent, label, opts, current, onChange) {
+    const el = parent.createDiv({ cls: 'sfc-ctl' });
+    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    const input = el.createEl('input', { cls: 'sfc-slider', attr: { type: 'range', min: '0', max: String(opts.length - 1), step: '1' } });
+    const name = el.createEl('span', { cls: 'sfc-slider-value' });
+    const idx = Math.max(0, opts.findIndex(o => o[1] === current));
+    input.value = String(idx);
+    name.setText((0, i18n_1.t)(opts[idx][0]));
+    input.addEventListener('input', () => { const o = opts[Number(input.value)]; name.setText((0, i18n_1.t)(o[0])); onChange(o[1]); });
+    return { el, input };
+}
+function addGroup(parent, title) {
+    const g = parent.createDiv({ cls: 'sfc-group' });
+    g.createDiv({ cls: 'sfc-group-title', text: (0, i18n_1.t)(title) });
+    return g.createDiv({ cls: 'sfc-group-body' });
+}
+/** Controls grouped by what they act on: the frame (Correct), the colours (Color) and the output file (File). */
+function buildToolbar(parent, plugin, h) {
+    const prefs = plugin.prefs;
+    const bar = parent.createDiv({ cls: 'sfc-toolbar' });
+    const frame = addGroup(bar, 'Correct');
+    const frameOnly = [];
+    addSwitch(frame, 'Crop', prefs.crop, on => { plugin.setPref('crop', on); h.onCrop(on); api.setCropEnabled(on); });
+    frameOnly.push(addSegmented(frame, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }).el);
+    frameOnly.push(addSegmented(frame, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT)).el);
+    const extras = frame.createDiv({ cls: 'sfc-ctl sfc-ctl-buttons' });
+    h.frameExtras(extras);
+    frameOnly.push(extras);
+    const color = addGroup(bar, 'Color');
+    addStepSlider(color, 'Strength', COLOR_OPTIONS, prefs.color, v => { plugin.setPref('color', v); h.onColor(); });
+    addSegmented(color, 'Tone', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); });
+    const file = addGroup(bar, 'File');
+    addSegmented(file, 'Save as', FORMAT_OPTIONS, prefs.format, v => plugin.setPref('format', v));
+    h.fileExtras(file);
+    const api = { setCropEnabled: (on) => {
+            for (const el of frameOnly) {
+                el.toggleClass('sfc-off', !on);
+                el.querySelectorAll('button,input').forEach(c => { c.disabled = !on; });
+            }
+        } };
+    api.setCropEnabled(prefs.crop);
+    return api;
 }
 const KEY_HINT = 'Number key: next corner candidate · Shift+number: previous candidate';
 /** The "…" menu: file name and paths live here instead of on the page; clicking a row copies it. */
@@ -1524,28 +1644,23 @@ class CorrectSlideModal extends obsidian_1.Modal {
         this.modalEl.addClass('sfc-modal');
         this.titleEl.setText((0, i18n_1.t)('Correct projected slide'));
         this.info = this.contentEl.createDiv({ cls: 'sfc-help' });
-        const toolbar = this.contentEl.createDiv({ cls: 'sfc-toolbar' });
-        this.autoButton = addButton(toolbar, 'Auto-detect', () => this.editor?.autoDetect());
-        this.resetButton = addButton(toolbar, 'Reset corners', () => this.editor?.reset());
-        const more = addButton(toolbar, '⋯', ev => showInfoMenu(ev, fileRows(this.entry, this.source)));
-        more.addClass('sfc-more');
-        more.setAttribute('aria-label', (0, i18n_1.t)('More'));
-        const prefs = this.plugin.prefs;
-        addSelect(toolbar, 'Crop', CROP_OPTIONS, prefs.crop ? 'on' : 'off', v => {
-            this.plugin.setPref('crop', v === 'on');
-            this.editor?.setEnabled(v === 'on');
-            this.updateCropUi();
-            this.requestPreview(false);
+        this.toolbar = buildToolbar(this.contentEl, this.plugin, {
+            onCrop: on => { this.editor?.setEnabled(on); this.requestPreview(false); },
+            onAspect: () => this.requestPreview(false),
+            onTrim: () => { if (this.editor?.origin === 'auto')
+                this.editor.autoDetect(); }, // re-run only if the frame is still the detector's own
+            onColor: () => this.requestPreview(false),
+            onTone: () => this.requestPreview(false),
+            frameExtras: body => {
+                this.autoButton = addButton(body, 'Auto-detect', () => this.editor?.autoDetect());
+                this.resetButton = addButton(body, 'Reset corners', () => this.editor?.reset());
+            },
+            fileExtras: body => {
+                const more = addButton(body, '⋯', ev => showInfoMenu(ev, fileRows(this.entry, this.source)));
+                more.addClass('sfc-more');
+                more.setAttribute('aria-label', (0, i18n_1.t)('More'));
+            },
         });
-        addSelect(toolbar, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { this.plugin.setPref('aspect', v); this.requestPreview(false); });
-        addSelect(toolbar, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => {
-            this.plugin.setPref('trim', v);
-            if (this.editor?.origin === 'auto')
-                this.editor.autoDetect(); // re-run only if the frame is still the detector's own
-        }, (0, i18n_1.t)(TRIM_HINT));
-        addSelect(toolbar, 'Color', COLOR_OPTIONS, prefs.color, v => { this.plugin.setPref('color', v); this.requestPreview(false); });
-        addSelect(toolbar, 'Tone', TONE_OPTIONS, prefs.tone, v => { this.plugin.setPref('tone', v); this.requestPreview(false); });
-        addSelect(toolbar, 'Save as', FORMAT_OPTIONS, prefs.format, v => this.plugin.setPref('format', v));
         const body = this.contentEl.createDiv({ cls: 'sfc-body' });
         const panels = body.createDiv({ cls: 'sfc-panels' });
         const left = panels.createDiv({ cls: 'sfc-panel' });
@@ -1593,7 +1708,7 @@ class CorrectSlideModal extends obsidian_1.Modal {
             if (isProcessed(this.entry.file))
                 this.base = { quad: (recQuad ?? this.editor.quad).map(v => ({ ...v })), prefs: src.rec?.prefs ?? outPrefs(this.plugin.prefs) };
             this.editor.setEnabled(this.plugin.prefs.crop);
-            this.updateCropUi();
+            this.toolbar.setCropEnabled(this.plugin.prefs.crop);
             this.saveButton.disabled = false;
         }
         catch (err) {
@@ -1606,11 +1721,6 @@ class CorrectSlideModal extends obsidian_1.Modal {
             window.clearTimeout(this.timer);
         this.release?.();
         this.contentEl.empty();
-    }
-    updateCropUi() {
-        const on = this.plugin.prefs.crop;
-        this.autoButton.disabled = !on;
-        this.resetButton.disabled = !on;
     }
     requestPreview(dragging) {
         if (!this.editor || !this.previewData)
@@ -1684,49 +1794,39 @@ class BatchModal extends obsidian_1.Modal {
         this.modalEl.addClass('sfc-modal');
         this.modalEl.addClass('sfc-batch-modal');
         this.titleEl.setText((0, i18n_1.t)('Slide photos in this note'));
-        const toolbar = this.contentEl.createDiv({ cls: 'sfc-toolbar' });
-        const prefs = this.plugin.prefs;
-        addSelect(toolbar, 'Crop', CROP_OPTIONS, prefs.crop ? 'on' : 'off', v => {
-            this.plugin.setPref('crop', v === 'on');
-            for (const c of this.cards)
-                c.editor?.setEnabled(v === 'on');
-            this.refreshPreviews();
-        });
-        addSelect(toolbar, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { this.plugin.setPref('aspect', v); this.refreshPreviews(); });
-        addSelect(toolbar, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => {
-            this.plugin.setPref('trim', v);
-            for (const c of this.cards)
+        buildToolbar(this.contentEl, this.plugin, {
+            onCrop: on => { for (const c of this.cards)
+                c.editor?.setEnabled(on); this.refreshPreviews(); },
+            onAspect: () => this.refreshPreviews(),
+            onTrim: () => { for (const c of this.cards)
                 if (c.editor?.origin === 'auto')
-                    c.editor.autoDetect();
-        }, (0, i18n_1.t)(TRIM_HINT));
-        addSelect(toolbar, 'Color', COLOR_OPTIONS, prefs.color, v => { this.plugin.setPref('color', v); this.refreshPreviews(); });
-        addSelect(toolbar, 'Tone', TONE_OPTIONS, prefs.tone, v => { this.plugin.setPref('tone', v); this.refreshPreviews(); });
-        addSelect(toolbar, 'Save as', FORMAT_OPTIONS, prefs.format, v => this.plugin.setPref('format', v));
-        const autoAll = toolbar.createEl('label', { cls: 'sfc-field' });
-        const autoBox = autoAll.createEl('input', { attr: { type: 'checkbox' } });
-        autoAll.createEl('span', { text: (0, i18n_1.t)('Auto-detect all') });
-        autoBox.addEventListener('change', () => {
-            this.autoAll = autoBox.checked;
-            for (const c of this.visible())
-                if (autoBox.checked)
-                    this.applyAuto(c);
-                else
-                    this.undoAuto(c);
-        });
-        const toggle = toolbar.createEl('label', { cls: 'sfc-field' });
-        const box = toggle.createEl('input', { attr: { type: 'checkbox' } });
-        toggle.createEl('span', { text: (0, i18n_1.t)('Show processed') });
-        box.addEventListener('change', () => { this.showProcessed = box.checked; this.render(); });
-        const all = toolbar.createEl('label', { cls: 'sfc-field' });
-        this.master = all.createEl('input', { attr: { type: 'checkbox' } });
-        this.master.checked = true;
-        all.createEl('span', { text: (0, i18n_1.t)('Select all') });
-        this.master.addEventListener('change', () => {
-            this.defaultInclude = this.master.checked;
-            for (const c of this.visible())
-                if (c.include && !c.include.disabled)
-                    c.include.checked = this.defaultInclude;
-            this.updateSave();
+                    c.editor.autoDetect(); },
+            onColor: () => this.refreshPreviews(),
+            onTone: () => this.refreshPreviews(),
+            frameExtras: body => {
+                addSwitch(body, 'Auto-detect all', false, on => {
+                    this.autoAll = on;
+                    for (const c of this.visible())
+                        if (on)
+                            this.applyAuto(c);
+                        else
+                            this.undoAuto(c);
+                });
+            },
+            fileExtras: body => {
+                addSwitch(body, 'Show processed', false, on => { this.showProcessed = on; this.render(); });
+                const all = body.createEl('label', { cls: 'sfc-ctl' });
+                this.master = all.createEl('input', { attr: { type: 'checkbox' } });
+                this.master.checked = true;
+                all.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)('Select all') });
+                this.master.addEventListener('change', () => {
+                    this.defaultInclude = this.master.checked;
+                    for (const c of this.visible())
+                        if (c.include && !c.include.disabled)
+                            c.include.checked = this.defaultInclude;
+                    this.updateSave();
+                });
+            },
         });
         this.summary = this.contentEl.createDiv({ cls: 'sfc-help' });
         const body = this.contentEl.createDiv({ cls: 'sfc-body' });

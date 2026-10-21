@@ -8,15 +8,16 @@ type Line = { a:number; b:number; r:number; votes:number; atCenter:number };
 const RAD=Math.PI/180;
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 
-/** Pulls each edge of a detected frame inward past a thin dark band (the screen bezel or wall between the frame line
- *  and the lit slide). Each edge slides inward until the brightness along it reaches the interior level; edges
- *  without such a band, dark slides, and anything that would need a large move are left alone. */
+/** Pulls each edge of a detected frame inward past the dark band (screen bezel, gold lip, wall) between the frame line
+ *  and the lit slide. Every edge is probed in 12 segments; where a segment starts darker than the slide, it is pushed
+ *  inward until the brightness reaches the slide level. A line is then fitted through those per-segment positions
+ *  (with outlier rejection), so a band of uneven thickness or a slightly tilted slide edge is followed instead of
+ *  just translated. Edges without a band, dark slides, and anything that needs a move beyond the limit stay put. */
 export type Trim = 'off'|'normal'|'wide';
-/** How far an edge may move (fraction of the photo's short side) and how dark/bright the band and the interior must be.
- *  'wide' reaches past thicker bands but can cut into the slide; it is meant for slides with a light background. */
+/** `maxFrac`: how far an edge may move (fraction of the short side); wide only searches further, so it never moves less than normal. */
 const TRIM: Record<Exclude<Trim,'off'>, { maxFrac: number; low: number; reach: number }> = {
-  normal: { maxFrac: 0.05, low: 0.72, reach: 0.85 },
-  wide: { maxFrac: 0.12, low: 0.8, reach: 0.8 },
+  normal: { maxFrac: 0.05, low: 0.80, reach: 0.90 },
+  wide: { maxFrac: 0.12, low: 0.85, reach: 0.90 },
 };
 
 export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, trim: Exclude<Trim,'off'> = 'normal'): Quad {
@@ -25,35 +26,68 @@ export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, tr
   const cx = (q[0].x + q[1].x + q[2].x + q[3].x) / 4, cy = (q[0].y + q[1].y + q[2].y + q[3].y) / 4;
   type L = { p: Point; dx: number; dy: number };
   const lines: L[] = [];
+  const SEGMENTS = 12;
   for (let i = 0; i < 4; i++) {
     const a = q[i], b = q[(i + 1) % 4];
     const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
     let nx = -dy / len, ny = dx / len;
     if ((cx - a.x) * nx + (cy - a.y) * ny < 0) { nx = -nx; ny = -ny; }
-    const raw: number[] = [];
-    for (let k = 0; k <= maxShift + 6; k++) {
-      let sum = 0, cnt = 0;
-      for (let s = 0; s < 40; s++) {
-        const t = 0.1 + 0.8 * s / 39;
-        const x = Math.round(a.x + dx * t + nx * k), y = Math.round(a.y + dy * t + ny * k);
-        if (x >= 0 && x < w && y >= 0 && y < h) { sum += gray[y * w + x]; cnt++; }
+    // brightness profile (distance inward from the frame line) for every segment
+    const segs: { t: number; raw: number[] }[] = [];
+    for (let j = 0; j < SEGMENTS; j++) {
+      const t0 = 0.06 + 0.88 * j / SEGMENTS, t1 = 0.06 + 0.88 * (j + 1) / SEGMENTS;
+      const raw: number[] = [];
+      for (let k = 0; k <= maxShift + 6; k++) {
+        let sum = 0, cnt = 0;
+        for (let s = 0; s < 8; s++) {
+          const t = t0 + (t1 - t0) * (s + 0.5) / 8;
+          const x = Math.round(a.x + dx * t + nx * k), y = Math.round(a.y + dy * t + ny * k);
+          if (x >= 0 && x < w && y >= 0 && y < h) { sum += gray[y * w + x]; cnt++; }
+        }
+        raw.push(cnt ? sum / cnt : NaN);
       }
-      raw.push(cnt ? sum / cnt : NaN);
+      segs.push({ t: (t0 + t1) / 2, raw });
     }
-    const prof = raw.map((v, k) => {
-      const win = [raw[k - 1], v, raw[k + 1]].filter(x => x !== undefined && !Number.isNaN(x)) as number[];
-      return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
-    });
+    // brightness of the slide itself near this edge
     let ref = 0;
-    for (let k = 2; k < prof.length; k++) if (prof[k] > ref) ref = prof[k];
-    let shift = 0;
-    if (ref >= 110 && prof[0] < cfg.low * ref) {
-      // the 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
-      for (let k = 1; k <= maxShift + 1; k++) {
-        if (prof[k] >= cfg.reach * ref && prof[Math.min(k + 2, prof.length - 1)] >= (cfg.reach - 0.05) * ref) { shift = k; break; }
+    for (let k = 2; k <= maxShift + 6; k++) {
+      let sum = 0, cnt = 0;
+      for (const sg of segs) if (!Number.isNaN(sg.raw[k])) { sum += sg.raw[k]; cnt++; }
+      if (cnt && sum / cnt > ref) ref = sum / cnt;
+    }
+    const pts: { t: number; s: number }[] = [];
+    if (ref >= 110) {
+      for (const sg of segs) {
+        // 3-tap smoothing delays the transition by one pixel, which doubles as a one-pixel safety margin
+        const p = sg.raw.map((v, k) => {
+          const win = [sg.raw[k - 1], v, sg.raw[k + 1]].filter(x => x !== undefined && !Number.isNaN(x)) as number[];
+          return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
+        });
+        if (!(p[0] < cfg.low * ref)) { pts.push({ t: sg.t, s: 0 }); continue; }
+        for (let k = 1; k <= maxShift + 1; k++) {
+          if (p[k] >= cfg.reach * ref && p[Math.min(k + 2, p.length - 1)] >= (cfg.reach - 0.05) * ref) { pts.push({ t: sg.t, s: k }); break; }
+        }
       }
     }
-    lines.push({ p: { x: a.x + nx * shift, y: a.y + ny * shift }, dx, dy });
+    // least-squares line s(t) = A + B t through the per-segment shifts, dropping outliers
+    let A = 0, B = 0;
+    if (pts.length >= 5) {
+      let use = pts;
+      for (let it = 0; it < 3; it++) {
+        const n = use.length;
+        const mt = use.reduce((m, p) => m + p.t, 0) / n, ms = use.reduce((m, p) => m + p.s, 0) / n;
+        let sxx = 0, sxy = 0;
+        for (const p of use) { sxx += (p.t - mt) ** 2; sxy += (p.t - mt) * (p.s - ms); }
+        B = sxx > 1e-9 ? sxy / sxx : 0; A = ms - B * mt;
+        const res = pts.map(p => Math.abs(p.s - (A + B * p.t)));
+        const sd = Math.sqrt(res.reduce((m, r) => m + r * r, 0) / res.length);
+        const next = pts.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
+        if (next.length < 4) break;
+        use = next;
+      }
+    }
+    const s0 = Math.min(maxShift, Math.max(0, A)), s1 = Math.min(maxShift, Math.max(0, A + B));
+    lines.push({ p: { x: a.x + nx * s0, y: a.y + ny * s0 }, dx: dx + nx * (s1 - s0), dy: dy + ny * (s1 - s0) });
   }
   const out = q.map((orig, i) => {
     const l1 = lines[(i + 3) % 4], l2 = lines[i];

@@ -110,6 +110,76 @@ function addButton(parent:HTMLElement,label:string,onClick:(e:MouseEvent)=>void)
   const button=parent.createEl('button',{text:t(label),attr:{type:'button'}});
   button.addEventListener('click',onClick);return button;
 }
+/** Segmented control: a few mutually exclusive choices side by side. */
+function addSegmented(parent:HTMLElement,label:string,opts:[string,string][],current:string,onChange:(value:string)=>void,hint?:string){
+  const el=parent.createDiv({cls:'sfc-ctl'});
+  if(hint)el.setAttribute('title',hint);
+  el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
+  const seg=el.createDiv({cls:'sfc-seg',attr:{role:'group'}});
+  const btns=new Map<string,HTMLButtonElement>();
+  const set=(v:string)=>{for(const [val,b] of btns){b.toggleClass('is-active',val===v);b.setAttribute('aria-pressed',String(val===v));}};
+  for(const [caption,value] of opts){
+    const b=seg.createEl('button',{text:t(caption),attr:{type:'button'}});
+    btns.set(value,b);
+    b.addEventListener('click',()=>{set(value);onChange(value);});
+  }
+  set(current);
+  return {el,set};
+}
+/** On/off switch. */
+function addSwitch(parent:HTMLElement,label:string,checked:boolean,onChange:(on:boolean)=>void,hint?:string){
+  const el=parent.createEl('label',{cls:'sfc-ctl sfc-switch'});
+  if(hint)el.setAttribute('title',hint);
+  const input=el.createEl('input',{attr:{type:'checkbox'}});
+  input.checked=checked;
+  el.createEl('span',{cls:'sfc-switch-track'});
+  el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
+  input.addEventListener('change',()=>onChange(input.checked));
+  return {el,input};
+}
+/** Slider over a few ordered levels, with the current level named next to it. */
+function addStepSlider(parent:HTMLElement,label:string,opts:[string,string][],current:string,onChange:(value:string)=>void){
+  const el=parent.createDiv({cls:'sfc-ctl'});
+  el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
+  const input=el.createEl('input',{cls:'sfc-slider',attr:{type:'range',min:'0',max:String(opts.length-1),step:'1'}});
+  const name=el.createEl('span',{cls:'sfc-slider-value'});
+  const idx=Math.max(0,opts.findIndex(o=>o[1]===current));
+  input.value=String(idx);name.setText(t(opts[idx][0]));
+  input.addEventListener('input',()=>{const o=opts[Number(input.value)];name.setText(t(o[0]));onChange(o[1]);});
+  return {el,input};
+}
+function addGroup(parent:HTMLElement,title:string):HTMLElement {
+  const g=parent.createDiv({cls:'sfc-group'});
+  g.createDiv({cls:'sfc-group-title',text:t(title)});
+  return g.createDiv({cls:'sfc-group-body'});
+}
+type ToolbarHooks = {
+  onCrop:(on:boolean)=>void; onAspect:()=>void; onTrim:()=>void; onColor:()=>void; onTone:()=>void;
+  frameExtras:(body:HTMLElement)=>void; fileExtras:(body:HTMLElement)=>void;
+};
+/** Controls grouped by what they act on: the frame (Correct), the colours (Color) and the output file (File). */
+function buildToolbar(parent:HTMLElement,plugin:SlideFrameCorrector,h:ToolbarHooks):{setCropEnabled:(on:boolean)=>void} {
+  const prefs=plugin.prefs;
+  const bar=parent.createDiv({cls:'sfc-toolbar'});
+  const frame=addGroup(bar,'Correct');
+  const frameOnly:HTMLElement[]=[];
+  addSwitch(frame,'Crop',prefs.crop,on=>{plugin.setPref('crop',on);h.onCrop(on);api.setCropEnabled(on);});
+  frameOnly.push(addSegmented(frame,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{plugin.setPref('aspect',v as Aspect);h.onAspect();}).el);
+  frameOnly.push(addSegmented(frame,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim();},t(TRIM_HINT)).el);
+  const extras=frame.createDiv({cls:'sfc-ctl sfc-ctl-buttons'});
+  h.frameExtras(extras);frameOnly.push(extras);
+  const color=addGroup(bar,'Color');
+  addStepSlider(color,'Strength',COLOR_OPTIONS,prefs.color,v=>{plugin.setPref('color',v as ColorMode);h.onColor();});
+  addSegmented(color,'Tone',TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();});
+  const file=addGroup(bar,'File');
+  addSegmented(file,'Save as',FORMAT_OPTIONS,prefs.format,v=>plugin.setPref('format',v as OutputFormat));
+  h.fileExtras(file);
+  const api={setCropEnabled:(on:boolean)=>{
+    for(const el of frameOnly){el.toggleClass('sfc-off',!on);el.querySelectorAll('button,input').forEach(c=>{(c as HTMLButtonElement|HTMLInputElement).disabled=!on;});}
+  }};
+  api.setCropEnabled(prefs.crop);
+  return api;
+}
 const KEY_HINT='Number key: next corner candidate · Shift+number: previous candidate';
 /** The "…" menu: file name and paths live here instead of on the page; clicking a row copies it. */
 function showInfoMenu(ev:MouseEvent,rows:[string,string][]):void {
@@ -549,6 +619,7 @@ class CorrectSlideModal extends Modal {
   private saveButton!:HTMLButtonElement;
   private autoButton!:HTMLButtonElement;
   private resetButton!:HTMLButtonElement;
+  private toolbar!:{setCropEnabled:(on:boolean)=>void};
   private timer:number|null=null;
   private previewData:ImageData|null=null;
   private busy=false;
@@ -558,25 +629,21 @@ class CorrectSlideModal extends Modal {
     this.modalEl.addClass('sfc-modal');
     this.titleEl.setText(t('Correct projected slide'));
     this.info=this.contentEl.createDiv({cls:'sfc-help'});
-    const toolbar=this.contentEl.createDiv({cls:'sfc-toolbar'});
-    this.autoButton=addButton(toolbar,'Auto-detect',()=>this.editor?.autoDetect());
-    this.resetButton=addButton(toolbar,'Reset corners',()=>this.editor?.reset());
-    const more=addButton(toolbar,'⋯',ev=>showInfoMenu(ev,fileRows(this.entry,this.source)));
-    more.addClass('sfc-more');more.setAttribute('aria-label',t('More'));
-    const prefs=this.plugin.prefs;
-    addSelect(toolbar,'Crop',CROP_OPTIONS,prefs.crop?'on':'off',v=>{
-      this.plugin.setPref('crop',v==='on');
-      this.editor?.setEnabled(v==='on');
-      this.updateCropUi();this.requestPreview(false);
+    this.toolbar=buildToolbar(this.contentEl,this.plugin,{
+      onCrop:on=>{this.editor?.setEnabled(on);this.requestPreview(false);},
+      onAspect:()=>this.requestPreview(false),
+      onTrim:()=>{if(this.editor?.origin==='auto')this.editor.autoDetect();}, // re-run only if the frame is still the detector's own
+      onColor:()=>this.requestPreview(false),
+      onTone:()=>this.requestPreview(false),
+      frameExtras:body=>{
+        this.autoButton=addButton(body,'Auto-detect',()=>this.editor?.autoDetect());
+        this.resetButton=addButton(body,'Reset corners',()=>this.editor?.reset());
+      },
+      fileExtras:body=>{
+        const more=addButton(body,'⋯',ev=>showInfoMenu(ev,fileRows(this.entry,this.source)));
+        more.addClass('sfc-more');more.setAttribute('aria-label',t('More'));
+      },
     });
-    addSelect(toolbar,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{this.plugin.setPref('aspect',v as Aspect);this.requestPreview(false);});
-    addSelect(toolbar,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{
-      this.plugin.setPref('trim',v as Trim);
-      if(this.editor?.origin==='auto')this.editor.autoDetect(); // re-run only if the frame is still the detector's own
-    },t(TRIM_HINT));
-    addSelect(toolbar,'Color',COLOR_OPTIONS,prefs.color,v=>{this.plugin.setPref('color',v as ColorMode);this.requestPreview(false);});
-    addSelect(toolbar,'Tone',TONE_OPTIONS,prefs.tone,v=>{this.plugin.setPref('tone',v as Tone);this.requestPreview(false);});
-    addSelect(toolbar,'Save as',FORMAT_OPTIONS,prefs.format,v=>this.plugin.setPref('format',v as OutputFormat));
 
     const body=this.contentEl.createDiv({cls:'sfc-body'});
     const panels=body.createDiv({cls:'sfc-panels'});
@@ -617,7 +684,7 @@ class CorrectSlideModal extends Modal {
       this.editor.markInitial();
       if(isProcessed(this.entry.file))this.base={quad:(recQuad??this.editor.quad).map(v=>({...v})) as Quad,prefs:src.rec?.prefs??outPrefs(this.plugin.prefs)};
       this.editor.setEnabled(this.plugin.prefs.crop);
-      this.updateCropUi();
+      this.toolbar.setCropEnabled(this.plugin.prefs.crop);
       this.saveButton.disabled=false;
     }catch(err){
       this.info.setText(t('Image could not be opened: {0}',String(err)));
@@ -628,10 +695,6 @@ class CorrectSlideModal extends Modal {
     if(this.timer!==null)window.clearTimeout(this.timer);
     this.release?.();
     this.contentEl.empty();
-  }
-  private updateCropUi():void {
-    const on=this.plugin.prefs.crop;
-    this.autoButton.disabled=!on;this.resetButton.disabled=!on;
   }
   private requestPreview(dragging:boolean):void {
     if(!this.editor||!this.previewData)return;
@@ -700,40 +763,30 @@ class BatchModal extends Modal {
     this.modalEl.addClass('sfc-modal');
     this.modalEl.addClass('sfc-batch-modal');
     this.titleEl.setText(t('Slide photos in this note'));
-    const toolbar=this.contentEl.createDiv({cls:'sfc-toolbar'});
-    const prefs=this.plugin.prefs;
-    addSelect(toolbar,'Crop',CROP_OPTIONS,prefs.crop?'on':'off',v=>{
-      this.plugin.setPref('crop',v==='on');
-      for(const c of this.cards)c.editor?.setEnabled(v==='on');
-      this.refreshPreviews();
-    });
-    addSelect(toolbar,'Aspect',ASPECT_OPTIONS,prefs.aspect,v=>{this.plugin.setPref('aspect',v as Aspect);this.refreshPreviews();});
-    addSelect(toolbar,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{
-      this.plugin.setPref('trim',v as Trim);
-      for(const c of this.cards)if(c.editor?.origin==='auto')c.editor.autoDetect();
-    },t(TRIM_HINT));
-    addSelect(toolbar,'Color',COLOR_OPTIONS,prefs.color,v=>{this.plugin.setPref('color',v as ColorMode);this.refreshPreviews();});
-    addSelect(toolbar,'Tone',TONE_OPTIONS,prefs.tone,v=>{this.plugin.setPref('tone',v as Tone);this.refreshPreviews();});
-    addSelect(toolbar,'Save as',FORMAT_OPTIONS,prefs.format,v=>this.plugin.setPref('format',v as OutputFormat));
-    const autoAll=toolbar.createEl('label',{cls:'sfc-field'});
-    const autoBox=autoAll.createEl('input',{attr:{type:'checkbox'}});
-    autoAll.createEl('span',{text:t('Auto-detect all')});
-    autoBox.addEventListener('change',()=>{
-      this.autoAll=autoBox.checked;
-      for(const c of this.visible())if(autoBox.checked)this.applyAuto(c);else this.undoAuto(c);
-    });
-    const toggle=toolbar.createEl('label',{cls:'sfc-field'});
-    const box=toggle.createEl('input',{attr:{type:'checkbox'}});
-    toggle.createEl('span',{text:t('Show processed')});
-    box.addEventListener('change',()=>{this.showProcessed=box.checked;this.render();});
-    const all=toolbar.createEl('label',{cls:'sfc-field'});
-    this.master=all.createEl('input',{attr:{type:'checkbox'}});
-    this.master.checked=true;
-    all.createEl('span',{text:t('Select all')});
-    this.master.addEventListener('change',()=>{
-      this.defaultInclude=this.master.checked;
-      for(const c of this.visible())if(c.include&&!c.include.disabled)c.include.checked=this.defaultInclude;
-      this.updateSave();
+    buildToolbar(this.contentEl,this.plugin,{
+      onCrop:on=>{for(const c of this.cards)c.editor?.setEnabled(on);this.refreshPreviews();},
+      onAspect:()=>this.refreshPreviews(),
+      onTrim:()=>{for(const c of this.cards)if(c.editor?.origin==='auto')c.editor.autoDetect();},
+      onColor:()=>this.refreshPreviews(),
+      onTone:()=>this.refreshPreviews(),
+      frameExtras:body=>{
+        addSwitch(body,'Auto-detect all',false,on=>{
+          this.autoAll=on;
+          for(const c of this.visible())if(on)this.applyAuto(c);else this.undoAuto(c);
+        });
+      },
+      fileExtras:body=>{
+        addSwitch(body,'Show processed',false,on=>{this.showProcessed=on;this.render();});
+        const all=body.createEl('label',{cls:'sfc-ctl'});
+        this.master=all.createEl('input',{attr:{type:'checkbox'}});
+        this.master.checked=true;
+        all.createEl('span',{cls:'sfc-ctl-label',text:t('Select all')});
+        this.master.addEventListener('change',()=>{
+          this.defaultInclude=this.master.checked;
+          for(const c of this.visible())if(c.include&&!c.include.disabled)c.include.checked=this.defaultInclude;
+          this.updateSave();
+        });
+      },
     });
     this.summary=this.contentEl.createDiv({cls:'sfc-help'});
     const body=this.contentEl.createDiv({cls:'sfc-body'});

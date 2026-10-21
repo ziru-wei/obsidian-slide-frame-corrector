@@ -76,3 +76,29 @@
 .sfc-batch-modal .sfc-body { overflow-y:hidden; overflow-x:auto; padding-top:8px; box-sizing:border-box; }
 .sfc-batch-modal .sfc-grid { margin-top:0; min-height:260px; box-sizing:border-box; }
 .sfc-card.sfc-selected { outline:2px solid var(--text-muted); outline-offset:2px; }
+
+/* Toolbar: three groups (Correct / Color / File), each with the control type that fits it. */
+.sfc-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:stretch; padding:10px 0 8px; }
+.sfc-group { border:1px solid var(--background-modifier-border); border-radius:8px; padding:6px 10px 8px; display:flex; flex-direction:column; gap:6px; min-width:0; }
+.sfc-group-title { font-size:var(--font-ui-smaller); color:var(--text-muted); font-weight:600; letter-spacing:.02em; }
+.sfc-group-body { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; }
+.sfc-ctl { display:inline-flex; align-items:center; gap:7px; font-size:var(--font-ui-small); color:var(--text-muted); }
+.sfc-ctl-label { white-space:nowrap; }
+.sfc-ctl-buttons { gap:6px; }
+.sfc-ctl.sfc-off { opacity:.4; }
+.sfc-seg { display:inline-flex; border:1px solid var(--background-modifier-border); border-radius:6px; overflow:hidden; }
+.sfc-seg button { border:none; border-radius:0; background:transparent; box-shadow:none; height:26px; padding:0 10px; font-size:var(--font-ui-small); color:var(--text-normal); }
+.sfc-seg button + button { border-left:1px solid var(--background-modifier-border); }
+.sfc-seg button.is-active { background:var(--interactive-accent); color:var(--text-on-accent); }
+.sfc-seg button:disabled { cursor:default; }
+.sfc-switch { cursor:pointer; }
+.sfc-switch input { position:absolute; opacity:0; width:0; height:0; }
+.sfc-switch-track { width:30px; height:17px; border-radius:9px; background:var(--background-modifier-border-hover); position:relative; flex-shrink:0; transition:background .12s; }
+.sfc-switch-track::after { content:""; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:var(--text-on-accent, #fff); transition:transform .12s; }
+.sfc-switch input:checked + .sfc-switch-track { background:var(--interactive-accent); }
+.sfc-switch input:checked + .sfc-switch-track::after { transform:translateX(13px); }
+.sfc-switch input:focus-visible + .sfc-switch-track { outline:2px solid var(--interactive-accent); outline-offset:2px; }
+.sfc-slider { width:110px; }
+.sfc-slider-value { min-width:3.2em; color:var(--text-normal); }
+/* Correct gets its own row; Color and File share the next one. */
+.sfc-toolbar > .sfc-group:first-child { flex:1 1 100%; }
