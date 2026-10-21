@@ -119,7 +119,7 @@
 
 /* --- v4: group switch next to its title, fewer words, controls to the right of their labels --- */
 .sfc-group-head { justify-content:flex-start; gap:10px; }
-.sfc-group-title svg, .sfc-ctl-label svg { display:none; }
+.sfc-ctl-label svg { display:none; }
 .sfc-footer-left { gap:10px 24px; }
 .sfc-ctl-buttons { gap:4px; }
 .sfc-btn.sfc-icon-only { width:28px; height:28px; padding:0; justify-content:center; }
@@ -130,3 +130,7 @@
 .sfc-card-tools .sfc-btn.sfc-icon-only { width:26px; height:26px; }
 /* The corrected preview sits on the note's own background instead of a black box. */
 .sfc-preview-wrap { background:var(--background-primary); }
+
+/* v5: more air between the sub-sections of a group */
+.sfc-group-body { gap:10px 32px; }
+.sfc-group-title .sfc-icon svg { width:16px; height:16px; }

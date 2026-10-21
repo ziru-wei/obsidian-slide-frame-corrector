@@ -134,8 +134,8 @@ function iconButton(parent:HTMLElement,icon:string,label:string,onClick:(e:Mouse
   return b;
 }
 /** Icon button that stays pressed (on/off). */
-function iconToggle(parent:HTMLElement,icon:string,label:string,pressed:boolean,onChange:(on:boolean)=>void){
-  const b=iconButton(parent,icon,label,()=>{const on=!b.hasClass('is-active');b.toggleClass('is-active',on);b.setAttribute('aria-pressed',String(on));onChange(on);},{iconOnly:true});
+function iconToggle(parent:HTMLElement,icon:string,label:string,pressed:boolean,onChange:(on:boolean)=>void,withLabel=false){
+  const b=iconButton(parent,icon,label,()=>{const on=!b.hasClass('is-active');b.toggleClass('is-active',on);b.setAttribute('aria-pressed',String(on));onChange(on);},{iconOnly:!withLabel});
   b.toggleClass('is-active',pressed);b.setAttribute('aria-pressed',String(pressed));
   return b;
 }
@@ -181,10 +181,12 @@ function addStepSlider(parent:HTMLElement,label:string,opts:Opt[],current:string
   return {el,input};
 }
 /** A titled group; the group's own switch sits right after the title. When off, the controls inside are dimmed and disabled. */
-function addGroup(parent:HTMLElement,title:string,toggle:{checked:boolean;onChange:(on:boolean)=>void}){
+function addGroup(parent:HTMLElement,title:string,icon:string,toggle:{checked:boolean;onChange:(on:boolean)=>void}){
   const g=parent.createDiv({cls:'sfc-group'});
   const head=g.createDiv({cls:'sfc-group-head'});
-  head.createDiv({cls:'sfc-group-title',text:t(title)});
+  const titleEl=head.createDiv({cls:'sfc-group-title'});
+  makeIcon(titleEl,icon);
+  titleEl.createEl('span',{text:t(title)});
   const sw=head.createEl('label',{cls:'sfc-switch sfc-group-switch',attr:{'aria-label':t(title)}});
   const input=sw.createEl('input',{attr:{type:'checkbox'}});
   input.checked=toggle.checked;
@@ -205,19 +207,19 @@ type ToolbarHooks = {
 function buildToolbar(parent:HTMLElement,plugin:SlideFrameCorrector,h:ToolbarHooks):{setCropEnabled:(on:boolean)=>void} {
   const prefs=plugin.prefs;
   const bar=parent.createDiv({cls:'sfc-toolbar'});
-  const frame=addGroup(bar,'Correct',{checked:prefs.crop,onChange:on=>{plugin.setPref('crop',on);h.onCrop(on);}});
+  const frame=addGroup(bar,'Correct','crop',{checked:prefs.crop,onChange:on=>{plugin.setPref('crop',on);h.onCrop(on);}});
   addSegmented(frame.body,null,ASPECT_OPTIONS,prefs.aspect,v=>{plugin.setPref('aspect',v as Aspect);h.onAspect();},t('Aspect'));
   addStepSlider(frame.body,'Edge trim',TRIM_OPTIONS,prefs.trim,v=>{plugin.setPref('trim',v as Trim);h.onTrim();},t(TRIM_HINT));
   const extras=frame.body.createDiv({cls:'sfc-ctl sfc-ctl-buttons'});
   h.frameExtras(extras);
   frame.setEnabled(prefs.crop);
-  const color=addGroup(bar,'Color',{checked:prefs.color!=='off',onChange:on=>{
+  const color=addGroup(bar,'Color','palette',{checked:prefs.color!=='off',onChange:on=>{
     plugin.setPref('color',on?plugin.lastColor:'off');h.onColor();
   }});
   addStepSlider(color.body,'Strength',COLOR_LEVELS,prefs.color==='off'?plugin.lastColor:prefs.color,v=>{
     plugin.lastColor=v as ColorMode;plugin.setPref('color',v as ColorMode);h.onColor();
   });
-  addSegmented(color.body,null,TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();},t('Tone'),true);
+  addSegmented(color.body,'Mode',TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();},t('Tone'),true);
   color.setEnabled(prefs.color!=='off');
   return {setCropEnabled:frame.setEnabled};
 }
@@ -682,7 +684,7 @@ class CorrectSlideModal extends Modal {
       onColor:()=>this.requestPreview(false),
       onTone:()=>this.requestPreview(false),
       frameExtras:body=>{
-        this.autoButton=iconButton(body,'sparkles','Auto-detect',()=>this.editor?.autoDetect(),{iconOnly:true});
+        this.autoButton=iconButton(body,'sparkles','Auto-detect',()=>this.editor?.autoDetect());
         this.resetButton=iconButton(body,'rotate-ccw','Reset corners',()=>this.editor?.reset(),{iconOnly:true});
       },
     });
@@ -817,7 +819,7 @@ class BatchModal extends Modal {
         iconToggle(body,'sparkles','Auto-detect all',false,on=>{
           this.autoAll=on;
           for(const c of this.visible())if(on)this.applyAuto(c);else this.undoAuto(c);
-        });
+        },true);
       },
     });
     this.summary=this.contentEl.createDiv({cls:'sfc-help'});

@@ -811,7 +811,7 @@ const ZH = {
     'Aspect ratio': '输出比例', 'Save as ': '保存格式',
     'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.': '校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
     'File format of the corrected image.': '校正后图片的文件格式。',
-    'Correct': '矫正', 'Strength': '强度',
+    'Correct': '矫正', 'Strength': '强度', 'Mode': '模式',
     'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠',
     'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
@@ -1002,8 +1002,8 @@ function iconButton(parent, icon, label, onClick, opts = {}) {
     return b;
 }
 /** Icon button that stays pressed (on/off). */
-function iconToggle(parent, icon, label, pressed, onChange) {
-    const b = iconButton(parent, icon, label, () => { const on = !b.hasClass('is-active'); b.toggleClass('is-active', on); b.setAttribute('aria-pressed', String(on)); onChange(on); }, { iconOnly: true });
+function iconToggle(parent, icon, label, pressed, onChange, withLabel = false) {
+    const b = iconButton(parent, icon, label, () => { const on = !b.hasClass('is-active'); b.toggleClass('is-active', on); b.setAttribute('aria-pressed', String(on)); onChange(on); }, { iconOnly: !withLabel });
     b.toggleClass('is-active', pressed);
     b.setAttribute('aria-pressed', String(pressed));
     return b;
@@ -1064,10 +1064,12 @@ function addStepSlider(parent, label, opts, current, onChange, hint) {
     return { el, input };
 }
 /** A titled group; the group's own switch sits right after the title. When off, the controls inside are dimmed and disabled. */
-function addGroup(parent, title, toggle) {
+function addGroup(parent, title, icon, toggle) {
     const g = parent.createDiv({ cls: 'sfc-group' });
     const head = g.createDiv({ cls: 'sfc-group-head' });
-    head.createDiv({ cls: 'sfc-group-title', text: (0, i18n_1.t)(title) });
+    const titleEl = head.createDiv({ cls: 'sfc-group-title' });
+    makeIcon(titleEl, icon);
+    titleEl.createEl('span', { text: (0, i18n_1.t)(title) });
     const sw = head.createEl('label', { cls: 'sfc-switch sfc-group-switch', attr: { 'aria-label': (0, i18n_1.t)(title) } });
     const input = sw.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = toggle.checked;
@@ -1084,13 +1086,13 @@ function addGroup(parent, title, toggle) {
 function buildToolbar(parent, plugin, h) {
     const prefs = plugin.prefs;
     const bar = parent.createDiv({ cls: 'sfc-toolbar' });
-    const frame = addGroup(bar, 'Correct', { checked: prefs.crop, onChange: on => { plugin.setPref('crop', on); h.onCrop(on); } });
+    const frame = addGroup(bar, 'Correct', 'crop', { checked: prefs.crop, onChange: on => { plugin.setPref('crop', on); h.onCrop(on); } });
     addSegmented(frame.body, null, ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }, (0, i18n_1.t)('Aspect'));
     addStepSlider(frame.body, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT));
     const extras = frame.body.createDiv({ cls: 'sfc-ctl sfc-ctl-buttons' });
     h.frameExtras(extras);
     frame.setEnabled(prefs.crop);
-    const color = addGroup(bar, 'Color', { checked: prefs.color !== 'off', onChange: on => {
+    const color = addGroup(bar, 'Color', 'palette', { checked: prefs.color !== 'off', onChange: on => {
             plugin.setPref('color', on ? plugin.lastColor : 'off');
             h.onColor();
         } });
@@ -1099,7 +1101,7 @@ function buildToolbar(parent, plugin, h) {
         plugin.setPref('color', v);
         h.onColor();
     });
-    addSegmented(color.body, null, TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, (0, i18n_1.t)('Tone'), true);
+    addSegmented(color.body, 'Mode', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, (0, i18n_1.t)('Tone'), true);
     color.setEnabled(prefs.color !== 'off');
     return { setCropEnabled: frame.setEnabled };
 }
@@ -1717,7 +1719,7 @@ class CorrectSlideModal extends obsidian_1.Modal {
             onColor: () => this.requestPreview(false),
             onTone: () => this.requestPreview(false),
             frameExtras: body => {
-                this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect(), { iconOnly: true });
+                this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect());
                 this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset(), { iconOnly: true });
             },
         });
@@ -1873,7 +1875,7 @@ class BatchModal extends obsidian_1.Modal {
                             this.applyAuto(c);
                         else
                             this.undoAuto(c);
-                });
+                }, true);
             },
         });
         this.summary = this.contentEl.createDiv({ cls: 'sfc-help' });
