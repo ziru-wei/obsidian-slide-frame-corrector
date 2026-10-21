@@ -1,0 +1,78 @@
+/* Scoped to the Slide Frame Corrector modals; no global theme overrides. */
+.sfc-modal { width:min(1150px,95vw); max-width:95vw; }
+.sfc-modal .modal-content { max-height:calc(100vh - 110px); overflow:hidden; display:flex; flex-direction:column; }
+.sfc-help { color:var(--text-muted); font-size:var(--font-ui-smaller); line-height:1.45; }
+.sfc-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; padding:14px 0 10px; }
+.sfc-toolbar button { white-space:nowrap; }
+.sfc-field { display:inline-flex; align-items:center; gap:6px; color:var(--text-muted); font-size:var(--font-ui-small); }
+.sfc-field select { min-width:85px; }
+.sfc-panels { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:14px; margin-top:4px; }
+.sfc-panel { min-width:0; }
+.sfc-label { color:var(--text-normal); font-weight:600; font-size:var(--font-ui-small); margin-bottom:8px; }
+.sfc-stage, .sfc-preview-wrap { position:relative; border:1px solid var(--background-modifier-border); border-radius:8px; background:#171b20; min-height:170px; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.sfc-edit-canvas, .sfc-preview { display:block; width:100%; max-height:62vh; height:auto; object-fit:contain; }
+.sfc-edit-canvas { cursor:crosshair; touch-action:none; }
+.sfc-loupe { position:absolute; top:8px; right:8px; width:140px; height:140px; border:2px solid #4be2d2; border-radius:50%; background:#161b20; pointer-events:none; box-shadow:0 2px 14px #0008; }
+.sfc-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:16px; flex-wrap:wrap; }
+.sfc-footer-buttons { display:flex; flex-wrap:wrap; gap:8px; }
+.sfc-picker-modal { max-width:640px; }
+.sfc-image-list { display:flex; flex-direction:column; gap:8px; max-height:60vh; overflow-y:auto; margin-top:12px; }
+.sfc-pick-image { display:flex; width:100%; align-items:center; text-align:left; gap:12px; padding:8px; height:auto; white-space:normal; }
+.sfc-pick-image img { width:90px; height:65px; object-fit:contain; background:#222; border-radius:4px; flex-shrink:0; }
+.sfc-pick-name { font-weight:600; overflow-wrap:anywhere; }
+@media(max-width:800px) {
+  .sfc-panels { grid-template-columns:1fr; }
+  .sfc-edit-canvas, .sfc-preview { max-height:45vh; }
+  .sfc-modal { width:95vw; }
+}
+.sfc-edit-canvas { cursor:crosshair; }
+.sfc-batch-modal { width:min(1500px,96vw); max-width:96vw; }
+.sfc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(440px,1fr)); gap:14px; margin-top:10px; }
+.sfc-card { border:1px solid var(--background-modifier-border); border-radius:8px; padding:10px; min-width:0; display:flex; flex-direction:column; gap:6px; }
+.sfc-card.sfc-saved { opacity:.55; }
+.sfc-card-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.sfc-card-name { display:flex; align-items:center; gap:8px; font-weight:600; font-size:var(--font-ui-small); min-width:0; overflow-wrap:anywhere; }
+.sfc-card-tools { display:flex; gap:6px; flex-shrink:0; }
+.sfc-card-tools button { height:auto; padding:2px 10px; font-size:var(--font-ui-smaller); }
+.sfc-card .sfc-edit-canvas { max-height:42vh; }
+.sfc-warn { color:var(--text-warning); }
+.sfc-empty { padding:24px 0; text-align:center; }
+.sfc-auto-ok { color:var(--color-green); border-color:var(--color-green); font-weight:600; }
+.sfc-card.sfc-selected { border-color:var(--interactive-accent); box-shadow:0 0 0 1px var(--interactive-accent); }
+.sfc-card-preview { min-height:60px; }
+.sfc-card .sfc-preview { max-height:30vh; }
+
+.sfc-body { flex:1 1 auto; min-height:0; overflow-y:auto; padding-right:2px; }
+.sfc-toolbar, .sfc-modal .sfc-help { flex-shrink:0; }
+.sfc-footer { flex-shrink:0; border-top:1px solid var(--background-modifier-border); margin-top:10px; padding-top:10px; align-items:flex-start; }
+.sfc-footer-right { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+.sfc-count { text-align:right; }
+.sfc-clean-list { max-height:40vh; overflow-y:auto; margin:10px 0; font-size:var(--font-ui-smaller); color:var(--text-muted); overflow-wrap:anywhere; }
+.sfc-clean-buttons { justify-content:flex-end; }
+.sfc-more { padding:2px 10px; font-weight:700; letter-spacing:1px; }
+.sfc-keyhint { margin-top:6px; }
+
+/* Dashboard scrolls sideways: one row of cards. */
+.sfc-batch-modal .sfc-body { overflow-x:auto; overflow-y:auto; }
+.sfc-batch-modal .sfc-grid { display:flex; flex-direction:row; align-items:flex-start; gap:14px; width:max-content; min-width:100%; margin-top:10px; }
+.sfc-batch-modal .sfc-card { flex:0 0 min(520px,82vw); width:min(520px,82vw); }
+.sfc-batch-modal .sfc-empty { width:100%; }
+
+/* Cards fill the dialog height, so the row itself never needs vertical scrolling. */
+.sfc-batch-modal .modal-content { height:calc(100vh - 150px); }
+.sfc-batch-modal .sfc-body { overflow-y:auto; overflow-x:auto; }
+.sfc-batch-modal .sfc-grid { height:100%; min-height:380px; align-items:stretch; margin-top:8px; }
+.sfc-batch-modal .sfc-card { height:100%; min-height:0; box-sizing:border-box; }
+.sfc-batch-modal .sfc-card .sfc-stage { flex:3 1 0; min-height:0; }
+.sfc-batch-modal .sfc-card .sfc-card-preview { flex:2 1 0; min-height:0; }
+.sfc-dot { display:none; width:8px; height:8px; border-radius:50%; background:var(--interactive-accent); flex-shrink:0; }
+.sfc-dot.sfc-changed { display:inline-block; }
+
+/* Changed cards are tinted as a whole, with a one-line reason. */
+.sfc-card.sfc-changed-card { border-color:var(--interactive-accent); background:color-mix(in srgb, var(--interactive-accent) 9%, transparent); box-shadow:0 0 0 1px var(--interactive-accent); }
+.sfc-reason { font-size:var(--font-ui-smaller); color:var(--interactive-accent); min-height:0; }
+.sfc-reason:empty { display:none; }
+/* No stray vertical scroll: the grid is exactly the body height. */
+.sfc-batch-modal .sfc-body { overflow-y:hidden; overflow-x:auto; padding-top:8px; box-sizing:border-box; }
+.sfc-batch-modal .sfc-grid { margin-top:0; min-height:260px; box-sizing:border-box; }
+.sfc-card.sfc-selected { outline:2px solid var(--text-muted); outline-offset:2px; }

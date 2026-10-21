@@ -1,0 +1,9 @@
+{
+  "id": "slide-frame-corrector",
+  "name": "Slide Frame Corrector",
+  "version": "0.2.0",
+  "minAppVersion": "1.5.0",
+  "description": "Auto-detect, adjust, and perspective-correct photos of projected classroom slides in your notes.",
+  "author": "ziru-wei",
+  "isDesktopOnly": false
+}
