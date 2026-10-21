@@ -1,4 +1,4 @@
-/* Slide Frame Corrector 0.2.0 — compiled plugin, no runtime network requests */
+/* Slide Frame Corrector 0.2.1 — compiled plugin, no runtime network requests */
 (function(){
 const __modules={
 "./geometry": function(module,exports,require){
