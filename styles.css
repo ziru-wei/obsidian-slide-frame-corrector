@@ -91,9 +91,9 @@
 .sfc-seg button + button { border-left:1px solid var(--background-modifier-border); }
 .sfc-seg button.is-active { background:var(--interactive-accent); color:var(--text-on-accent); }
 .sfc-seg button:disabled { cursor:default; }
-.sfc-switch { cursor:pointer; }
+.sfc-switch { cursor:pointer; display:inline-flex; align-items:center; gap:7px; }
 .sfc-switch input { position:absolute; opacity:0; width:0; height:0; }
-.sfc-switch-track { width:30px; height:17px; border-radius:9px; background:var(--background-modifier-border-hover); position:relative; flex-shrink:0; transition:background .12s; }
+.sfc-switch-track { display:inline-block; width:30px; height:17px; border-radius:9px; background:var(--background-modifier-border-hover); position:relative; flex-shrink:0; transition:background .12s; }
 .sfc-switch-track::after { content:""; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:var(--text-on-accent, #fff); transition:transform .12s; }
 .sfc-switch input:checked + .sfc-switch-track { background:var(--interactive-accent); }
 .sfc-switch input:checked + .sfc-switch-track::after { transform:translateX(13px); }
@@ -101,4 +101,18 @@
 .sfc-slider { width:110px; }
 .sfc-slider-value { min-width:3.2em; color:var(--text-normal); }
 /* Correct gets its own row; Color and File share the next one. */
-.sfc-toolbar > .sfc-group:first-child { flex:1 1 100%; }
+
+/* --- v3 toolbar: two switchable groups on top, output options at the left of the bottom bar --- */
+.sfc-toolbar > .sfc-group { flex:1 1 440px; }
+.sfc-toolbar > .sfc-group:first-child { flex-grow:1.4; }
+.sfc-group-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.sfc-group-title { display:flex; align-items:center; gap:6px; font-size:var(--font-ui-small); color:var(--text-normal); font-weight:600; }
+.sfc-group.sfc-off > .sfc-group-body { opacity:.4; }
+.sfc-group.sfc-off > .sfc-group-head .sfc-group-title { color:var(--text-muted); }
+.sfc-icon { display:inline-flex; align-items:center; }
+.sfc-icon svg { width:14px; height:14px; }
+.sfc-btn { display:inline-flex; align-items:center; gap:5px; }
+.sfc-seg button { display:inline-flex; align-items:center; gap:4px; }
+.sfc-ctl-label { display:inline-flex; align-items:center; gap:4px; }
+.sfc-footer-left { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; min-width:0; }
+.sfc-footer-left .sfc-ctl { color:var(--text-muted); }

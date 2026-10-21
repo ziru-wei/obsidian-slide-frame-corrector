@@ -811,7 +811,7 @@ const ZH = {
     'Aspect ratio': '输出比例', 'Save as ': '保存格式',
     'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.': '校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
     'File format of the corrected image.': '校正后图片的文件格式。',
-    'Correct': '矫正', 'File': '文件', 'Strength': '强度',
+    'Correct': '矫正', 'Strength': '强度',
     'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠',
     'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
@@ -885,7 +885,8 @@ const LANG_OPTIONS = [['Auto (follow Obsidian)', 'auto'], ['English', 'en'], ['�
 const ASPECT_OPTIONS = [['16:9', '16:9'], ['4:3', '4:3'], ['Auto', 'auto']];
 const FORMAT_OPTIONS = [['JPG', 'image/jpeg'], ['PNG', 'image/png']];
 const COLOR_OPTIONS = [['Off', 'off'], ['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
-const TONE_OPTIONS = [['Full color', 'color'], ['Grayscale', 'gray'], ['Black & white', 'bw']];
+const TONE_OPTIONS = [['Full color', 'color', 'palette'], ['Grayscale', 'gray', 'contrast'], ['Black & white', 'bw', 'sun-moon']];
+const COLOR_LEVELS = [['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
 const CROP_OPTIONS = [['On', 'on'], ['Off (color only)', 'off']];
 const SUPPORTED = /\.(png|jpe?g|webp|bmp|avif)$/i;
 /** Files written by this plugin are named `<photo>-slide-001.jpg`; they count as already processed. */
@@ -959,7 +960,12 @@ function addSelect(parent, label, opts, current, onChange, hint) {
     select.addEventListener('change', () => onChange(select.value));
 }
 function setAutoBadge(btn, label, ok) {
-    btn.setText(ok ? `✓ ${(0, i18n_1.t)(label)}` : (0, i18n_1.t)(label));
+    const text = ok ? `✓ ${(0, i18n_1.t)(label)}` : (0, i18n_1.t)(label);
+    const span = btn.querySelector('.sfc-btn-label');
+    if (span)
+        span.setText(text);
+    else
+        btn.setText(text);
     btn.toggleClass('sfc-auto-ok', ok);
 }
 function addButton(parent, label, onClick) {
@@ -967,42 +973,72 @@ function addButton(parent, label, onClick) {
     button.addEventListener('click', onClick);
     return button;
 }
+/** Lucide icon (bundled with Obsidian). */
+function makeIcon(parent, name) {
+    const el = parent.createEl('span', { cls: 'sfc-icon' });
+    (0, obsidian_1.setIcon)(el, name);
+    return el;
+}
+/** Button with a Lucide icon (and a label unless `iconOnly`); shows `fallback` text if the icon is unknown. */
+function iconButton(parent, icon, label, onClick, opts = {}) {
+    const b = parent.createEl('button', { cls: 'sfc-btn', attr: { type: 'button' } });
+    makeIcon(b, icon);
+    if (opts.iconOnly) {
+        b.setAttribute('aria-label', (0, i18n_1.t)(label));
+        b.setAttribute('title', (0, i18n_1.t)(label));
+        if (!b.querySelector('svg'))
+            b.setText(opts.fallback ?? '⋯');
+    }
+    else
+        b.createEl('span', { cls: 'sfc-btn-label', text: (0, i18n_1.t)(label) });
+    b.addEventListener('click', onClick);
+    return b;
+}
+function ctlLabel(parent, label, icon) {
+    const l = parent.createEl('span', { cls: 'sfc-ctl-label' });
+    if (icon)
+        makeIcon(l, icon);
+    l.createEl('span', { text: (0, i18n_1.t)(label) });
+}
 /** Segmented control: a few mutually exclusive choices side by side. */
-function addSegmented(parent, label, opts, current, onChange, hint) {
+function addSegmented(parent, label, opts, current, onChange, hint, labelIcon) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
     if (hint)
         el.setAttribute('title', hint);
-    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    ctlLabel(el, label, labelIcon);
     const seg = el.createDiv({ cls: 'sfc-seg', attr: { role: 'group' } });
     const btns = new Map();
     const set = (v) => { for (const [val, b] of btns) {
         b.toggleClass('is-active', val === v);
         b.setAttribute('aria-pressed', String(val === v));
     } };
-    for (const [caption, value] of opts) {
-        const b = seg.createEl('button', { text: (0, i18n_1.t)(caption), attr: { type: 'button' } });
+    for (const [caption, value, icon] of opts) {
+        const b = seg.createEl('button', { attr: { type: 'button' } });
+        if (icon)
+            makeIcon(b, icon);
+        b.createEl('span', { text: (0, i18n_1.t)(caption) });
         btns.set(value, b);
         b.addEventListener('click', () => { set(value); onChange(value); });
     }
     set(current);
     return { el, set };
 }
-/** On/off switch. */
-function addSwitch(parent, label, checked, onChange, hint) {
+/** On/off switch with a label. */
+function addSwitch(parent, label, checked, onChange, hint, icon) {
     const el = parent.createEl('label', { cls: 'sfc-ctl sfc-switch' });
     if (hint)
         el.setAttribute('title', hint);
     const input = el.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = checked;
     el.createEl('span', { cls: 'sfc-switch-track' });
-    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    ctlLabel(el, label, icon);
     input.addEventListener('change', () => onChange(input.checked));
     return { el, input };
 }
 /** Slider over a few ordered levels, with the current level named next to it. */
-function addStepSlider(parent, label, opts, current, onChange) {
+function addStepSlider(parent, label, opts, current, onChange, labelIcon) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
-    el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
+    ctlLabel(el, label, labelIcon);
     const input = el.createEl('input', { cls: 'sfc-slider', attr: { type: 'range', min: '0', max: String(opts.length - 1), step: '1' } });
     const name = el.createEl('span', { cls: 'sfc-slider-value' });
     const idx = Math.max(0, opts.findIndex(o => o[1] === current));
@@ -1011,37 +1047,52 @@ function addStepSlider(parent, label, opts, current, onChange) {
     input.addEventListener('input', () => { const o = opts[Number(input.value)]; name.setText((0, i18n_1.t)(o[0])); onChange(o[1]); });
     return { el, input };
 }
-function addGroup(parent, title) {
+/** A titled group whose header carries its own on/off switch; when off, the controls inside are dimmed and disabled. */
+function addGroup(parent, title, icon, toggle) {
     const g = parent.createDiv({ cls: 'sfc-group' });
-    g.createDiv({ cls: 'sfc-group-title', text: (0, i18n_1.t)(title) });
-    return g.createDiv({ cls: 'sfc-group-body' });
+    const head = g.createDiv({ cls: 'sfc-group-head' });
+    const titleEl = head.createDiv({ cls: 'sfc-group-title' });
+    makeIcon(titleEl, icon);
+    titleEl.createEl('span', { text: (0, i18n_1.t)(title) });
+    const sw = head.createEl('label', { cls: 'sfc-switch sfc-group-switch', attr: { 'aria-label': (0, i18n_1.t)(title) } });
+    const input = sw.createEl('input', { attr: { type: 'checkbox' } });
+    input.checked = toggle.checked;
+    sw.createEl('span', { cls: 'sfc-switch-track' });
+    const body = g.createDiv({ cls: 'sfc-group-body' });
+    const setEnabled = (on) => {
+        g.toggleClass('sfc-off', !on);
+        body.querySelectorAll('button,input').forEach(c => { c.disabled = !on; });
+    };
+    input.addEventListener('change', () => { setEnabled(input.checked); toggle.onChange(input.checked); });
+    return { body, setEnabled };
 }
-/** Controls grouped by what they act on: the frame (Correct), the colours (Color) and the output file (File). */
+/** Two groups, each with its own switch: Correct (the frame/crop) and Color (colour correction + tone). */
 function buildToolbar(parent, plugin, h) {
     const prefs = plugin.prefs;
     const bar = parent.createDiv({ cls: 'sfc-toolbar' });
-    const frame = addGroup(bar, 'Correct');
-    const frameOnly = [];
-    addSwitch(frame, 'Crop', prefs.crop, on => { plugin.setPref('crop', on); h.onCrop(on); api.setCropEnabled(on); });
-    frameOnly.push(addSegmented(frame, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }).el);
-    frameOnly.push(addSegmented(frame, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT)).el);
-    const extras = frame.createDiv({ cls: 'sfc-ctl sfc-ctl-buttons' });
+    const frame = addGroup(bar, 'Correct', 'crop', { checked: prefs.crop, onChange: on => { plugin.setPref('crop', on); h.onCrop(on); } });
+    addSegmented(frame.body, 'Aspect', ASPECT_OPTIONS, prefs.aspect, v => { plugin.setPref('aspect', v); h.onAspect(); }, undefined, 'ratio');
+    addSegmented(frame.body, 'Edge trim', TRIM_OPTIONS, prefs.trim, v => { plugin.setPref('trim', v); h.onTrim(); }, (0, i18n_1.t)(TRIM_HINT), 'scan');
+    const extras = frame.body.createDiv({ cls: 'sfc-ctl sfc-ctl-buttons' });
     h.frameExtras(extras);
-    frameOnly.push(extras);
-    const color = addGroup(bar, 'Color');
-    addStepSlider(color, 'Strength', COLOR_OPTIONS, prefs.color, v => { plugin.setPref('color', v); h.onColor(); });
-    addSegmented(color, 'Tone', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); });
-    const file = addGroup(bar, 'File');
-    addSegmented(file, 'Save as', FORMAT_OPTIONS, prefs.format, v => plugin.setPref('format', v));
-    h.fileExtras(file);
-    const api = { setCropEnabled: (on) => {
-            for (const el of frameOnly) {
-                el.toggleClass('sfc-off', !on);
-                el.querySelectorAll('button,input').forEach(c => { c.disabled = !on; });
-            }
-        } };
-    api.setCropEnabled(prefs.crop);
-    return api;
+    frame.setEnabled(prefs.crop);
+    const color = addGroup(bar, 'Color', 'palette', { checked: prefs.color !== 'off', onChange: on => {
+            plugin.setPref('color', on ? plugin.lastColor : 'off');
+            h.onColor();
+        } });
+    addStepSlider(color.body, 'Strength', COLOR_LEVELS, prefs.color === 'off' ? plugin.lastColor : prefs.color, v => {
+        plugin.lastColor = v;
+        plugin.setPref('color', v);
+        h.onColor();
+    }, 'sliders-horizontal');
+    addSegmented(color.body, 'Tone', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, undefined, 'swatch-book');
+    color.setEnabled(prefs.color !== 'off');
+    return { setCropEnabled: frame.setEnabled };
+}
+/** Output format (and per-dialog extras), shown at the left of the bottom bar. */
+function buildFileBar(parent, plugin, extras) {
+    addSegmented(parent, 'Save as', FORMAT_OPTIONS, plugin.prefs.format, v => plugin.setPref('format', v), undefined, 'image');
+    extras(parent);
 }
 const KEY_HINT = 'Number key: next corner candidate · Shift+number: previous candidate';
 /** The "…" menu: file name and paths live here instead of on the page; clicking a row copies it. */
@@ -1652,13 +1703,8 @@ class CorrectSlideModal extends obsidian_1.Modal {
             onColor: () => this.requestPreview(false),
             onTone: () => this.requestPreview(false),
             frameExtras: body => {
-                this.autoButton = addButton(body, 'Auto-detect', () => this.editor?.autoDetect());
-                this.resetButton = addButton(body, 'Reset corners', () => this.editor?.reset());
-            },
-            fileExtras: body => {
-                const more = addButton(body, '⋯', ev => showInfoMenu(ev, fileRows(this.entry, this.source)));
-                more.addClass('sfc-more');
-                more.setAttribute('aria-label', (0, i18n_1.t)('More'));
+                this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect());
+                this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset());
             },
         });
         const body = this.contentEl.createDiv({ cls: 'sfc-body' });
@@ -1672,7 +1718,9 @@ class CorrectSlideModal extends obsidian_1.Modal {
         const prevWrap = right.createDiv({ cls: 'sfc-preview-wrap' });
         this.preview = prevWrap.createEl('canvas', { cls: 'sfc-preview' });
         const footer = this.contentEl.createDiv({ cls: 'sfc-footer' });
-        footer.createDiv({ cls: 'sfc-help', text: (0, i18n_1.t)('Original photo stays untouched. Only this embed will change.') });
+        buildFileBar(footer.createDiv({ cls: 'sfc-footer-left' }), this.plugin, body => {
+            iconButton(body, 'ellipsis', 'More', ev => showInfoMenu(ev, fileRows(this.entry, this.source)), { iconOnly: true, fallback: '⋯' });
+        });
         const buttons = footer.createDiv({ cls: 'sfc-footer-buttons' });
         addButton(buttons, 'Cancel', () => this.close());
         this.saveButton = addButton(buttons, 'Save & replace in note', () => void this.save());
@@ -1811,21 +1859,7 @@ class BatchModal extends obsidian_1.Modal {
                             this.applyAuto(c);
                         else
                             this.undoAuto(c);
-                });
-            },
-            fileExtras: body => {
-                addSwitch(body, 'Show processed', false, on => { this.showProcessed = on; this.render(); });
-                const all = body.createEl('label', { cls: 'sfc-ctl' });
-                this.master = all.createEl('input', { attr: { type: 'checkbox' } });
-                this.master.checked = true;
-                all.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)('Select all') });
-                this.master.addEventListener('change', () => {
-                    this.defaultInclude = this.master.checked;
-                    for (const c of this.visible())
-                        if (c.include && !c.include.disabled)
-                            c.include.checked = this.defaultInclude;
-                    this.updateSave();
-                });
+                }, undefined, 'sparkles');
             },
         });
         this.summary = this.contentEl.createDiv({ cls: 'sfc-help' });
@@ -1833,7 +1867,20 @@ class BatchModal extends obsidian_1.Modal {
         this.grid = body.createDiv({ cls: 'sfc-grid' });
         this.empty = body.createDiv({ cls: 'sfc-empty sfc-help' });
         const footer = this.contentEl.createDiv({ cls: 'sfc-footer' });
-        footer.createDiv({ cls: 'sfc-help', text: (0, i18n_1.t)('Originals stay untouched. Each selected photo is saved as a new image and its embed is replaced.') });
+        buildFileBar(footer.createDiv({ cls: 'sfc-footer-left' }), this.plugin, body => {
+            addSwitch(body, 'Show processed', false, on => { this.showProcessed = on; this.render(); }, undefined, 'eye');
+            const all = body.createEl('label', { cls: 'sfc-ctl' });
+            this.master = all.createEl('input', { attr: { type: 'checkbox' } });
+            this.master.checked = true;
+            ctlLabel(all, 'Select all', 'list-checks');
+            this.master.addEventListener('change', () => {
+                this.defaultInclude = this.master.checked;
+                for (const c of this.visible())
+                    if (c.include && !c.include.disabled)
+                        c.include.checked = this.defaultInclude;
+                this.updateSave();
+            });
+        });
         const right = footer.createDiv({ cls: 'sfc-footer-right' });
         const buttons = right.createDiv({ cls: 'sfc-footer-buttons' });
         addButton(buttons, 'Close', () => this.close());
@@ -2171,6 +2218,8 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
     constructor() {
         super(...arguments);
         this.prefs = { ...DEFAULT_PREFS };
+        /** Last non-off colour strength, restored when the Color switch is turned back on. */
+        this.lastColor = 'standard';
         /** Output image path -> original photo and the frame that produced it, so re-editing starts from the original. */
         this.records = {};
         /** Frames the user dragged but did not save, keyed by original photo path. */
@@ -2237,6 +2286,8 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
             trim: pick(saved.trim, TRIM_OPTIONS, DEFAULT_PREFS.trim)
         };
         (0, i18n_1.setLang)(this.prefs.lang);
+        if (this.prefs.color !== 'off')
+            this.lastColor = this.prefs.color;
         currentTrim = this.prefs.trim;
         this.records = saved.records && typeof saved.records === 'object' ? saved.records : {};
         this.drafts = saved.drafts && typeof saved.drafts === 'object' ? saved.drafts : {};
