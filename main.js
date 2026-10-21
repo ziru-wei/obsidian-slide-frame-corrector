@@ -2029,11 +2029,15 @@ class SlideFrameCorrector extends obsidian_1.Plugin {
             const view = this.viewFor(el);
             if (!view?.file)
                 return;
-            const img = el.closest('img');
+            // In Live Preview the click can land on the embed's wrapper rather than on the <img> itself, so look inside the embed too.
+            const embed = el.closest('.internal-embed, .image-embed, .media-embed, .cm-embed-block');
+            const img = el.closest('img') ?? embed?.querySelector('img') ?? null;
             this.rightClickImage = img;
             let kind = null;
             if (img)
                 kind = 'image';
+            else if (embed)
+                kind = null; // some other embed or widget: leave Obsidian's menu alone
             else if (el.closest('.cm-editor') || el.matches('.markdown-source-view, .markdown-preview-view, .markdown-preview-sizer, .markdown-preview-pusher'))
                 kind = 'batch';
             if (!kind)

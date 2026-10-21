@@ -1078,10 +1078,13 @@ export default class SlideFrameCorrector extends Plugin {
       if(!(el instanceof Element)||!el.closest('.markdown-preview-view, .markdown-source-view'))return;
       const view=this.viewFor(el as HTMLElement);
       if(!view?.file)return;
-      const img=el.closest('img') as HTMLImageElement|null;
+      // In Live Preview the click can land on the embed's wrapper rather than on the <img> itself, so look inside the embed too.
+      const embed=el.closest('.internal-embed, .image-embed, .media-embed, .cm-embed-block');
+      const img=(el.closest('img') as HTMLImageElement|null)??(embed?.querySelector('img') as HTMLImageElement|null)??null;
       this.rightClickImage=img;
       let kind:'image'|'batch'|null=null;
       if(img)kind='image';
+      else if(embed)kind=null; // some other embed or widget: leave Obsidian's menu alone
       else if(el.closest('.cm-editor')||el.matches('.markdown-source-view, .markdown-preview-view, .markdown-preview-sizer, .markdown-preview-pusher'))kind='batch';
       if(!kind)return;
       const time=Date.now();
