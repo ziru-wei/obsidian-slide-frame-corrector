@@ -169,3 +169,18 @@ test('xwide also trims a faint gold-like band that normal ignores, and never tri
   assert.ok(normal[0].x<3,'normal leaves the faint band: '+normal[0].x);
   assert.ok(x[0].x>=10&&x[0].y>=10,'xwide trims it: '+JSON.stringify(x[0]));
 });
+
+test('autoColor with pure background pushes a faint grey/tinted slide background to white and keeps dark text',()=>{
+  const W=200,H=120;
+  const img=makeImage(W,H,()=>0);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const p=4*(y*W+x),t=x/(W-1);
+    let r=205+30*t,g=212+20*t,b=222+10*t;
+    if(y>50&&y<56&&x>40&&x<160){r=g=b=45;}
+    img.data[p]=r;img.data[p+1]=g;img.data[p+2]=b;
+  }
+  modules.color.autoColor(img,1,true);
+  const px=(x,y)=>{const p=4*(y*W+x);return [img.data[p],img.data[p+1],img.data[p+2]];};
+  for(const [x,y] of [[10,10],[100,100],[190,20]]){const v=px(x,y);assert.ok(v.every(c=>c>=252),`bg ${x},${y}: ${v}`);}
+  assert.ok(px(100,53).every(c=>c<90),'text stays dark: '+px(100,53));
+});

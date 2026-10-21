@@ -47,9 +47,9 @@ const TRIM_HINT='Pulls the detected frame inward past dark/gold screen bands. Wi
 const LANG_OPTIONS: [string,string][] = [['Auto (follow Obsidian)','auto'],['English','en'],['中文','zh']];
 const ASPECT_OPTIONS: [string,string][] = [['16:9','16:9'],['4:3','4:3'],['Auto','auto']];
 const FORMAT_OPTIONS: [string,string][] = [['JPG','image/jpeg'],['PNG','image/png']];
-const COLOR_OPTIONS: [string,string][] = [['Off','off'],['Soft','soft'],['Standard','standard'],['Strong','strong']];
+const COLOR_OPTIONS: Opt[] = [['Off','off'],['Soft','soft'],['Standard','standard'],['Strong','strong'],['Max','max']];
 const TONE_OPTIONS: Opt[] = [['Full color','color'],['Grayscale','gray'],['Black & white','bw']];
-const COLOR_LEVELS: Opt[] = [['Soft','soft'],['Standard','standard'],['Strong','strong']];
+const COLOR_LEVELS: Opt[] = [['Soft','soft'],['Standard','standard'],['Strong','strong'],['Max','max']];
 const CROP_OPTIONS: [string,string][] = [['On','on'],['Off (color only)','off']];
 const SUPPORTED=/\.(png|jpe?g|webp|bmp|avif)$/i;
 /** Files written by this plugin are named `<photo>-slide-001.jpg`; they count as already processed. */
@@ -259,7 +259,7 @@ function makeOutput(src:ImageData,quad:Quad,prefs:Prefs,maxSide:number):ImageDat
       out=bc.getImageData(0,0,b.width,b.height);
     }
   }
-  autoColor(out,COLOR_STRENGTH[prefs.color]);
+  autoColor(out,COLOR_STRENGTH[prefs.color],prefs.color==='max');
   applyTone(out,prefs.tone);
   return out;
 }
@@ -1104,7 +1104,7 @@ class SlideFrameSettingTab extends PluginSettingTab {
     dropdown('Save as','File format of the corrected image.',FORMAT_OPTIONS,'format');
     new Setting(containerEl).setName(t('Crop to slide')).setDesc(t('Off keeps the whole photo and only applies color/tone.')).addToggle(tg=>tg.setValue(this.plugin.prefs.crop).onChange(v=>this.plugin.setPref('crop',v)));
     dropdown('Edge trim',TRIM_HINT,TRIM_OPTIONS,'trim');
-    dropdown('Color correction','Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.',COLOR_OPTIONS,'color');
+    dropdown('Color correction','Auto white balance and levels. Off keeps the original colors; Max also pushes the background to pure white.',COLOR_OPTIONS,'color');
     dropdown('Tone','Color, grayscale, or pure black & white (applied after color correction).',TONE_OPTIONS,'tone');
     new Setting(containerEl).setName(t('Clean originals')).setDesc(t('Move original photos that already have a corrected version and are no longer used in any note to the trash. You confirm the list first.'))
       .addButton(b=>b.setButtonText(t('Clean…')).setWarning().onClick(()=>this.plugin.openCleanOriginals()));

@@ -1,6 +1,7 @@
 export type Tone = 'color'|'gray'|'bw';
-export type ColorMode = 'off'|'soft'|'standard'|'strong';
-export const COLOR_STRENGTH: Record<ColorMode, number> = { off: 0, soft: 0.5, standard: 0.8, strong: 1 };
+export type ColorMode = 'off'|'soft'|'standard'|'strong'|'max';
+/** 'max' is full strength plus a purer background (see autoColor's `pure`). */
+export const COLOR_STRENGTH: Record<ColorMode, number> = { off: 0, soft: 0.5, standard: 0.8, strong: 1, max: 1 };
 
 /** Histograms (sampled) of the three channels and of luma. */
 function stats(d: Uint8ClampedArray) {
@@ -26,10 +27,11 @@ function stats(d: Uint8ClampedArray) {
  *  per cell and channel; a cell darker than its neighbourhood borrows the neighbourhood median,
  *  then smoothed) and divides it out. Uneven lighting and colour tints that vary across the photo (a blue top,
  *  a warm bottom) end up as an even white. Works in place; `strength` blends with the original. */
-export function flattenBackground(img: ImageData, strength: number): void {
+export function flattenBackground(img: ImageData, strength: number, fine = false): void {
   const { width: w, height: h, data: d } = img;
   if (w < 8 || h < 8) return;
-  const gx = Math.max(4, Math.min(20, Math.round(w / 60))), gy = Math.max(3, Math.min(14, Math.round(h / 60)));
+  const cell = fine ? 36 : 60; // finer grid follows lighting gradients more closely
+  const gx = Math.max(4, Math.min(fine ? 32 : 20, Math.round(w / cell))), gy = Math.max(3, Math.min(fine ? 22 : 14, Math.round(h / cell)));
   const nb = gx * gy;
   const hist = new Uint32Array(nb * 3 * 256), counts = new Uint32Array(nb);
   const sx = Math.max(1, Math.floor(Math.sqrt(w * h / 250000)));
@@ -46,7 +48,7 @@ export function flattenBackground(img: ImageData, strength: number): void {
   let bg: number[] = new Array(nb * 3).fill(255);
   for (let b = 0; b < nb; b++) for (let c = 0; c < 3; c++) {
     if (!counts[b]) { bg[b*3+c] = 255; continue; }
-    const cut = counts[b] * 0.85; let acc = 0, v = 0;
+    const cut = counts[b] * (fine ? 0.78 : 0.85); let acc = 0, v = 0;
     for (; v < 255; v++) { acc += hist[(b * 3 + c) * 256 + v]; if (acc >= cut) break; }
     bg[b*3+c] = v;
   }
@@ -80,7 +82,7 @@ export function flattenBackground(img: ImageData, strength: number): void {
         const a = bg[(y0 * gx + gx0[x]) * 3 + c] * (1 - gxs[x]) + bg[(y0 * gx + gx1[x]) * 3 + c] * gxs[x];
         const b = bg[(y1 * gx + gx0[x]) * 3 + c] * (1 - gxs[x]) + bg[(y1 * gx + gx1[x]) * 3 + c] * gxs[x];
         const level = Math.max(1, a * (1 - ty) + b * ty);
-        const gain = Math.min(3, Math.max(1, 255 / level));
+        const gain = Math.min(fine ? 4 : 3, Math.max(1, 255 / level));
         const v = d[i + c];
         d[i + c] = v + (Math.min(255, v * gain) - v) * strength;
       }
@@ -95,18 +97,18 @@ export function flattenBackground(img: ImageData, strength: number): void {
  *     percentile (the slide background, so it ends up pure white and glare above it is clipped);
  *     on a dark slide it is the 99.5th percentile so highlights are not blown out.
  *  2. A smoothstep S-curve then pushes darks darker and lights lighter (the "curve" step). */
-export function autoColor(img: ImageData, strength: number): void {
+export function autoColor(img: ImageData, strength: number, pure = false): void {
   if (strength <= 0) return;
   let st = stats(img.data);
   // 70th percentile, not the median: a slide with large dark pictures can have a dark median but a white background
   const lightSlide = st.percentile(st.luma, 0.7) > 150;
   if (lightSlide) {
-    flattenBackground(img, strength);
+    flattenBackground(img, strength, pure);
     st = stats(img.data);
   }
   const d = img.data, n = d.length / 4;
-  const hiP = lightSlide ? 0.92 : 0.995;
-  const CONTRAST = 0.75; // 0 = linear levels only, 1 = full smoothstep
+  const hiP = lightSlide ? (pure ? 0.85 : 0.92) : 0.995;
+  const CONTRAST = pure && lightSlide ? 1 : 0.75; // 0 = linear levels only, 1 = full smoothstep
   const luts: Uint8ClampedArray[] = [];
   for (let c = 0; c < 3; c++) {
     const lo = st.percentile(st.hist[c], 0.005), hi = st.percentile(st.hist[c], hiP);
@@ -121,6 +123,19 @@ export function autoColor(img: ImageData, strength: number): void {
   }
   for (let i = 0; i < n; i++) {
     d[4*i] = luts[0][d[4*i]]; d[4*i+1] = luts[1][d[4*i+1]]; d[4*i+2] = luts[2][d[4*i+2]];
+  }
+  if (pure && lightSlide) snapBackground(img);
+}
+
+/** Pushes near-white pixels to pure white: how white a pixel is = its darkest channel, so text, lines and pictures
+ *  (dark in at least one channel) are untouched while the faint grey/tinted background becomes clean white. */
+function snapBackground(img: ImageData): void {
+  const d = img.data, n = d.length / 4;
+  for (let i = 0; i < n; i++) {
+    const m = Math.min(d[4*i], d[4*i+1], d[4*i+2]);
+    if (m <= 205) continue;
+    const t = Math.min(1, (m - 205) / 30), s = t * t * (3 - 2 * t);
+    d[4*i] += (255 - d[4*i]) * s; d[4*i+1] += (255 - d[4*i+1]) * s; d[4*i+2] += (255 - d[4*i+2]) * s;
   }
 }
 

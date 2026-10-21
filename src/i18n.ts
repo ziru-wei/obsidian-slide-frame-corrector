@@ -12,7 +12,7 @@ export function setLang(lang: Lang): void {
 
 const ZH: Record<string, string> = {
   'Crop':'裁切','Aspect':'比例','Color':'矫色','Tone':'色调','Save as':'保存为',
-  'On':'开','Off':'关','Off (color only)':'关（仅调色）','Auto':'自动','Soft':'轻','Standard':'标准','Strong':'强',
+  'On':'开','Off':'关','Off (color only)':'关（仅调色）','Auto':'自动','Soft':'轻','Standard':'标准','Strong':'强','Max':'超强',
   'Full color':'彩色','Grayscale':'灰度','Black & white':'纯黑白',
   'Auto (follow Obsidian)':'自动（跟随 Obsidian）',
   'Auto-detect':'自动检测','Reset corners':'重置角点','Reset':'重置','Auto-detect all':'全部自动检测',
@@ -66,7 +66,7 @@ const ZH: Record<string, string> = {
   'Edge trim':'边缘内收','Wide ⚠':'宽 ⚠','Extra wide ⚠⚠':'超宽 ⚠⚠',
   'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.':'自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边;“超宽”还会收掉淡淡的边线并多留一圈余量。两档都可能切进幻灯片,对浅色底幻灯片比较有效。',
   'Crop to slide':'裁切到幻灯片','Off keeps the whole photo and only applies color/tone.':'关闭后保留整张照片，只应用矫色和色调。',
-  'Color correction':'矫色','Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.':'自动白平衡和色阶曲线。关闭则保持原色；“强”最激进。',
+  'Color correction':'矫色','Auto white balance and levels. Off keeps the original colors; Max also pushes the background to pure white.':'自动白平衡和色阶曲线。关闭则保持原色;“超强”还会把背景推成纯白。',
   'Color, grayscale, or pure black & white (applied after color correction).':'彩色、灰度或纯黑白（在矫色之后应用）。',
   'Language':'语言','Language of this plugin’s interface. Commands update after reloading Obsidian.':'插件界面语言。命令名称需重载 Obsidian 后更新。',
   'Clean originals':'清理原图',

@@ -591,7 +591,8 @@ exports.COLOR_STRENGTH = void 0;
 exports.flattenBackground = flattenBackground;
 exports.autoColor = autoColor;
 exports.applyTone = applyTone;
-exports.COLOR_STRENGTH = { off: 0, soft: 0.5, standard: 0.8, strong: 1 };
+/** 'max' is full strength plus a purer background (see autoColor's `pure`). */
+exports.COLOR_STRENGTH = { off: 0, soft: 0.5, standard: 0.8, strong: 1, max: 1 };
 /** Histograms (sampled) of the three channels and of luma. */
 function stats(d) {
     const n = d.length / 4;
@@ -623,11 +624,12 @@ function stats(d) {
  *  per cell and channel; a cell darker than its neighbourhood borrows the neighbourhood median,
  *  then smoothed) and divides it out. Uneven lighting and colour tints that vary across the photo (a blue top,
  *  a warm bottom) end up as an even white. Works in place; `strength` blends with the original. */
-function flattenBackground(img, strength) {
+function flattenBackground(img, strength, fine = false) {
     const { width: w, height: h, data: d } = img;
     if (w < 8 || h < 8)
         return;
-    const gx = Math.max(4, Math.min(20, Math.round(w / 60))), gy = Math.max(3, Math.min(14, Math.round(h / 60)));
+    const cell = fine ? 36 : 60; // finer grid follows lighting gradients more closely
+    const gx = Math.max(4, Math.min(fine ? 32 : 20, Math.round(w / cell))), gy = Math.max(3, Math.min(fine ? 22 : 14, Math.round(h / cell)));
     const nb = gx * gy;
     const hist = new Uint32Array(nb * 3 * 256), counts = new Uint32Array(nb);
     const sx = Math.max(1, Math.floor(Math.sqrt(w * h / 250000)));
@@ -650,7 +652,7 @@ function flattenBackground(img, strength) {
                 bg[b * 3 + c] = 255;
                 continue;
             }
-            const cut = counts[b] * 0.85;
+            const cut = counts[b] * (fine ? 0.78 : 0.85);
             let acc = 0, v = 0;
             for (; v < 255; v++) {
                 acc += hist[(b * 3 + c) * 256 + v];
@@ -694,7 +696,7 @@ function flattenBackground(img, strength) {
                 const a = bg[(y0 * gx + gx0[x]) * 3 + c] * (1 - gxs[x]) + bg[(y0 * gx + gx1[x]) * 3 + c] * gxs[x];
                 const b = bg[(y1 * gx + gx0[x]) * 3 + c] * (1 - gxs[x]) + bg[(y1 * gx + gx1[x]) * 3 + c] * gxs[x];
                 const level = Math.max(1, a * (1 - ty) + b * ty);
-                const gain = Math.min(3, Math.max(1, 255 / level));
+                const gain = Math.min(fine ? 4 : 3, Math.max(1, 255 / level));
                 const v = d[i + c];
                 d[i + c] = v + (Math.min(255, v * gain) - v) * strength;
             }
@@ -708,19 +710,19 @@ function flattenBackground(img, strength) {
  *     percentile (the slide background, so it ends up pure white and glare above it is clipped);
  *     on a dark slide it is the 99.5th percentile so highlights are not blown out.
  *  2. A smoothstep S-curve then pushes darks darker and lights lighter (the "curve" step). */
-function autoColor(img, strength) {
+function autoColor(img, strength, pure = false) {
     if (strength <= 0)
         return;
     let st = stats(img.data);
     // 70th percentile, not the median: a slide with large dark pictures can have a dark median but a white background
     const lightSlide = st.percentile(st.luma, 0.7) > 150;
     if (lightSlide) {
-        flattenBackground(img, strength);
+        flattenBackground(img, strength, pure);
         st = stats(img.data);
     }
     const d = img.data, n = d.length / 4;
-    const hiP = lightSlide ? 0.92 : 0.995;
-    const CONTRAST = 0.75; // 0 = linear levels only, 1 = full smoothstep
+    const hiP = lightSlide ? (pure ? 0.85 : 0.92) : 0.995;
+    const CONTRAST = pure && lightSlide ? 1 : 0.75; // 0 = linear levels only, 1 = full smoothstep
     const luts = [];
     for (let c = 0; c < 3; c++) {
         const lo = st.percentile(st.hist[c], 0.005), hi = st.percentile(st.hist[c], hiP);
@@ -737,6 +739,22 @@ function autoColor(img, strength) {
         d[4 * i] = luts[0][d[4 * i]];
         d[4 * i + 1] = luts[1][d[4 * i + 1]];
         d[4 * i + 2] = luts[2][d[4 * i + 2]];
+    }
+    if (pure && lightSlide)
+        snapBackground(img);
+}
+/** Pushes near-white pixels to pure white: how white a pixel is = its darkest channel, so text, lines and pictures
+ *  (dark in at least one channel) are untouched while the faint grey/tinted background becomes clean white. */
+function snapBackground(img) {
+    const d = img.data, n = d.length / 4;
+    for (let i = 0; i < n; i++) {
+        const m = Math.min(d[4 * i], d[4 * i + 1], d[4 * i + 2]);
+        if (m <= 205)
+            continue;
+        const t = Math.min(1, (m - 205) / 30), s = t * t * (3 - 2 * t);
+        d[4 * i] += (255 - d[4 * i]) * s;
+        d[4 * i + 1] += (255 - d[4 * i + 1]) * s;
+        d[4 * i + 2] += (255 - d[4 * i + 2]) * s;
     }
 }
 /** Monochrome output: 'gray' keeps the tones, 'bw' is pure black/white split at the Otsu threshold. In place. */
@@ -800,7 +818,7 @@ function setLang(lang) {
 }
 const ZH = {
     'Crop': '裁切', 'Aspect': '比例', 'Color': '矫色', 'Tone': '色调', 'Save as': '保存为',
-    'On': '开', 'Off': '关', 'Off (color only)': '关（仅调色）', 'Auto': '自动', 'Soft': '轻', 'Standard': '标准', 'Strong': '强',
+    'On': '开', 'Off': '关', 'Off (color only)': '关（仅调色）', 'Auto': '自动', 'Soft': '轻', 'Standard': '标准', 'Strong': '强', 'Max': '超强',
     'Full color': '彩色', 'Grayscale': '灰度', 'Black & white': '纯黑白',
     'Auto (follow Obsidian)': '自动（跟随 Obsidian）',
     'Auto-detect': '自动检测', 'Reset corners': '重置角点', 'Reset': '重置', 'Auto-detect all': '全部自动检测',
@@ -854,7 +872,7 @@ const ZH = {
     'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠', 'Extra wide ⚠⚠': '超宽 ⚠⚠',
     'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边;“超宽”还会收掉淡淡的边线并多留一圈余量。两档都可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
-    'Color correction': '矫色', 'Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.': '自动白平衡和色阶曲线。关闭则保持原色；“强”最激进。',
+    'Color correction': '矫色', 'Auto white balance and levels. Off keeps the original colors; Max also pushes the background to pure white.': '自动白平衡和色阶曲线。关闭则保持原色;“超强”还会把背景推成纯白。',
     'Color, grayscale, or pure black & white (applied after color correction).': '彩色、灰度或纯黑白（在矫色之后应用）。',
     'Language': '语言', 'Language of this plugin’s interface. Commands update after reloading Obsidian.': '插件界面语言。命令名称需重载 Obsidian 后更新。',
     'Clean originals': '清理原图',
@@ -923,9 +941,9 @@ const TRIM_HINT = 'Pulls the detected frame inward past dark/gold screen bands. 
 const LANG_OPTIONS = [['Auto (follow Obsidian)', 'auto'], ['English', 'en'], ['中文', 'zh']];
 const ASPECT_OPTIONS = [['16:9', '16:9'], ['4:3', '4:3'], ['Auto', 'auto']];
 const FORMAT_OPTIONS = [['JPG', 'image/jpeg'], ['PNG', 'image/png']];
-const COLOR_OPTIONS = [['Off', 'off'], ['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
+const COLOR_OPTIONS = [['Off', 'off'], ['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong'], ['Max', 'max']];
 const TONE_OPTIONS = [['Full color', 'color'], ['Grayscale', 'gray'], ['Black & white', 'bw']];
-const COLOR_LEVELS = [['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
+const COLOR_LEVELS = [['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong'], ['Max', 'max']];
 const CROP_OPTIONS = [['On', 'on'], ['Off (color only)', 'off']];
 const SUPPORTED = /\.(png|jpe?g|webp|bmp|avif)$/i;
 /** Files written by this plugin are named `<photo>-slide-001.jpg`; they count as already processed. */
@@ -1177,7 +1195,7 @@ function makeOutput(src, quad, prefs, maxSide) {
             out = bc.getImageData(0, 0, b.width, b.height);
         }
     }
-    (0, color_1.autoColor)(out, color_1.COLOR_STRENGTH[prefs.color]);
+    (0, color_1.autoColor)(out, color_1.COLOR_STRENGTH[prefs.color], prefs.color === 'max');
     (0, color_1.applyTone)(out, prefs.tone);
     return out;
 }
@@ -2288,7 +2306,7 @@ class SlideFrameSettingTab extends obsidian_1.PluginSettingTab {
         dropdown('Save as', 'File format of the corrected image.', FORMAT_OPTIONS, 'format');
         new obsidian_1.Setting(containerEl).setName((0, i18n_1.t)('Crop to slide')).setDesc((0, i18n_1.t)('Off keeps the whole photo and only applies color/tone.')).addToggle(tg => tg.setValue(this.plugin.prefs.crop).onChange(v => this.plugin.setPref('crop', v)));
         dropdown('Edge trim', TRIM_HINT, TRIM_OPTIONS, 'trim');
-        dropdown('Color correction', 'Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.', COLOR_OPTIONS, 'color');
+        dropdown('Color correction', 'Auto white balance and levels. Off keeps the original colors; Max also pushes the background to pure white.', COLOR_OPTIONS, 'color');
         dropdown('Tone', 'Color, grayscale, or pure black & white (applied after color correction).', TONE_OPTIONS, 'tone');
         new obsidian_1.Setting(containerEl).setName((0, i18n_1.t)('Clean originals')).setDesc((0, i18n_1.t)('Move original photos that already have a corrected version and are no longer used in any note to the trash. You confirm the list first.'))
             .addButton(b => b.setButtonText((0, i18n_1.t)('Clean…')).setWarning().onClick(() => this.plugin.openCleanOriginals()));
