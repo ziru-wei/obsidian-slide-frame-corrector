@@ -13,11 +13,16 @@ const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
  *  inward until the brightness reaches the slide level. A line is then fitted through those per-segment positions
  *  (with outlier rejection), so a band of uneven thickness or a slightly tilted slide edge is followed instead of
  *  just translated. Edges without a band, dark slides, and anything that needs a move beyond the limit stay put. */
-export type Trim = 'off'|'normal'|'wide';
+export type Trim = 'off'|'normal'|'wide'|'xwide';
 /** `maxFrac`: how far an edge may move (fraction of the short side); wide only searches further, so it never moves less than normal. */
-const TRIM: Record<Exclude<Trim,'off'>, { maxFrac: number; low: number; reach: number }> = {
-  normal: { maxFrac: 0.05, low: 0.80, reach: 0.90 },
-  wide: { maxFrac: 0.12, low: 0.85, reach: 0.90 },
+const TRIM: Record<Exclude<Trim,'off'>, { maxFrac: number; low: number; reach: number; margin: number; lowerHalf?: boolean; knee?: boolean }> = {
+  normal: { maxFrac: 0.05, low: 0.80, reach: 0.90, margin: 0 },
+  wide: { maxFrac: 0.12, low: 0.85, reach: 0.90, margin: 1 },
+  // xwide looks for where the brightness profile stops rising (the knee at the end of the band) instead of a fixed
+  // brightness, so it also catches faint bands (a tan/gold lip at ~85% of the slide white) and is not fooled by slides
+  // that are naturally a little darker near their edges. It searches far, keeps a safety margin, and fits the line
+  // through the smaller shifts only, so content near an edge (a logo, a footer line) cannot pull it into the slide.
+  xwide: { maxFrac: 0.2, low: 0.92, reach: 0.97, margin: 2, lowerHalf: true, knee: true },
 };
 
 export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, trim: Exclude<Trim,'off'> = 'normal'): Quad {
@@ -64,8 +69,24 @@ export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, tr
           return win.length ? win.reduce((m, n) => m + n, 0) / win.length : NaN;
         });
         if (!(p[0] < cfg.low * ref)) { pts.push({ t: sg.t, s: 0 }); continue; }
+        if (cfg.knee) {
+          // the further in of: where the brightness profile flattens out (knee), and where it first reaches 90% of the slide
+          let found = 0;
+          for (let k = 1; k <= maxShift; k++) {
+            let ahead = 0;
+            for (let j = k + 1; j <= Math.min(p.length - 1, k + 8); j++) if (p[j] > ahead) ahead = p[j];
+            if (ahead > 0 && p[k] >= cfg.reach * ahead && p[k] - p[0] >= 0.03 * ref) { found = k; break; }
+          }
+          let bright = 0;
+          for (let k = 1; k <= maxShift + 1; k++) {
+            if (p[k] >= 0.9 * ref && p[Math.min(k + 2, p.length - 1)] >= 0.85 * ref) { bright = k; break; }
+          }
+          const s = Math.max(found, bright);
+          if (s) pts.push({ t: sg.t, s: s + cfg.margin });
+          continue;
+        }
         for (let k = 1; k <= maxShift + 1; k++) {
-          if (p[k] >= cfg.reach * ref && p[Math.min(k + 2, p.length - 1)] >= (cfg.reach - 0.05) * ref) { pts.push({ t: sg.t, s: k }); break; }
+          if (p[k] >= cfg.reach * ref && p[Math.min(k + 2, p.length - 1)] >= (cfg.reach - 0.05) * ref) { pts.push({ t: sg.t, s: k + cfg.margin }); break; }
         }
       }
     }
@@ -73,15 +94,22 @@ export function refineQuad(gray: Float32Array, w: number, h: number, q: Quad, tr
     let A = 0, B = 0;
     if (pts.length >= 5) {
       let use = pts;
+      if (cfg.lowerHalf) {
+        const sorted = pts.map(p => p.s).sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)];
+        use = pts.filter(p => p.s <= med);
+        if (use.length < 4) use = pts;
+      }
       for (let it = 0; it < 3; it++) {
         const n = use.length;
         const mt = use.reduce((m, p) => m + p.t, 0) / n, ms = use.reduce((m, p) => m + p.s, 0) / n;
         let sxx = 0, sxy = 0;
         for (const p of use) { sxx += (p.t - mt) ** 2; sxy += (p.t - mt) * (p.s - ms); }
         B = sxx > 1e-9 ? sxy / sxx : 0; A = ms - B * mt;
-        const res = pts.map(p => Math.abs(p.s - (A + B * p.t)));
+        const base = cfg.lowerHalf ? use : pts;
+        const res = base.map(p => Math.abs(p.s - (A + B * p.t)));
         const sd = Math.sqrt(res.reduce((m, r) => m + r * r, 0) / res.length);
-        const next = pts.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
+        const next = base.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
         if (next.length < 4) break;
         use = next;
       }

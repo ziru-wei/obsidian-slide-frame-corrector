@@ -134,3 +134,7 @@
 /* v5: more air between the sub-sections of a group */
 .sfc-group-body { gap:10px 32px; }
 .sfc-group-title .sfc-icon svg { width:16px; height:16px; }
+
+/* screen-reader-only text (no tooltips anywhere) */
+.sfc-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.sfc-btn { position:relative; }

@@ -40,15 +40,15 @@ type OutputFormat = 'image/jpeg'|'image/png';
 type Prefs = {aspect: Aspect; format: OutputFormat; color: ColorMode; tone: Tone; crop: boolean; lang: Lang; trim: Trim};
 const DEFAULT_PREFS: Prefs = {aspect:'16:9', format:'image/jpeg', color:'off', tone:'color', crop:true, lang:'auto', trim:'normal'};
 type Opt = [string,string,string?]; // caption, value, optional Lucide icon
-const TRIM_OPTIONS: Opt[] = [['Off','off'],['Normal','normal'],['Wide ⚠','wide']];
+const TRIM_OPTIONS: Opt[] = [['Off','off'],['Normal','normal'],['Wide ⚠','wide'],['Extra wide ⚠⚠','xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
 let currentTrim: Trim = 'normal';
-const TRIM_HINT='Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.';
+const TRIM_HINT='Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.';
 const LANG_OPTIONS: [string,string][] = [['Auto (follow Obsidian)','auto'],['English','en'],['中文','zh']];
 const ASPECT_OPTIONS: [string,string][] = [['16:9','16:9'],['4:3','4:3'],['Auto','auto']];
 const FORMAT_OPTIONS: [string,string][] = [['JPG','image/jpeg'],['PNG','image/png']];
 const COLOR_OPTIONS: [string,string][] = [['Off','off'],['Soft','soft'],['Standard','standard'],['Strong','strong']];
-const TONE_OPTIONS: Opt[] = [['Full color','color','palette'],['Grayscale','gray','contrast'],['Black & white','bw','sun-moon']];
+const TONE_OPTIONS: Opt[] = [['Full color','color'],['Grayscale','gray'],['Black & white','bw']];
 const COLOR_LEVELS: Opt[] = [['Soft','soft'],['Standard','standard'],['Strong','strong']];
 const CROP_OPTIONS: [string,string][] = [['On','on'],['Off (color only)','off']];
 const SUPPORTED=/\.(png|jpe?g|webp|bmp|avif)$/i;
@@ -95,7 +95,6 @@ function fitCanvas(canvas:HTMLCanvasElement,box:HTMLElement):void {
 }
 function addSelect(parent:HTMLElement,label:string,opts:[string,string][],current:string,onChange:(value:string)=>void,hint?:string):void {
   const holder=parent.createEl('label',{cls:'sfc-field'});
-  if(hint)holder.setAttribute('title',hint);
   holder.createEl('span',{text:t(label)});
   const select=holder.createEl('select');
   for(const [caption,value] of opts) {
@@ -106,7 +105,7 @@ function addSelect(parent:HTMLElement,label:string,opts:[string,string][],curren
 }
 function setAutoBadge(btn:HTMLButtonElement,label:string,ok:boolean):void {
   btn.toggleClass('sfc-auto-ok',ok);
-  if(btn.hasClass('sfc-icon-only')){const tip=ok?`${t(label)} ✓`:t(label);btn.setAttribute('title',tip);btn.setAttribute('aria-label',tip);return;}
+  if(btn.hasClass('sfc-icon-only'))return;
   const text=ok?`✓ ${t(label)}`:t(label);
   const span=btn.querySelector('.sfc-btn-label');
   if(span)span.setText(text);else btn.setText(text);
@@ -127,7 +126,7 @@ function iconButton(parent:HTMLElement,icon:string,label:string,onClick:(e:Mouse
   makeIcon(b,icon);
   if(opts.iconOnly){
     b.addClass('sfc-icon-only');
-    b.setAttribute('aria-label',t(label));b.setAttribute('title',t(label));
+    b.createEl('span',{cls:'sfc-sr',text:t(label)});
     if(!b.querySelector('svg'))b.setText(opts.fallback??'•');
   }else b.createEl('span',{cls:'sfc-btn-label',text:t(label)});
   b.addEventListener('click',onClick);
@@ -142,14 +141,13 @@ function iconToggle(parent:HTMLElement,icon:string,label:string,pressed:boolean,
 /** Segmented control. With `iconOnly`, each choice is just its icon (the name is the tooltip). The label, if any, comes first, the control to its right. */
 function addSegmented(parent:HTMLElement,label:string|null,opts:Opt[],current:string,onChange:(value:string)=>void,hint?:string,iconOnly=false){
   const el=parent.createDiv({cls:'sfc-ctl'});
-  if(hint)el.setAttribute('title',hint);
   if(label)el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const seg=el.createDiv({cls:'sfc-seg',attr:{role:'group'}});
   const btns=new Map<string,HTMLButtonElement>();
   const set=(v:string)=>{for(const [val,b] of btns){b.toggleClass('is-active',val===v);b.setAttribute('aria-pressed',String(val===v));}};
   for(const [caption,value,icon] of opts){
     const b=seg.createEl('button',{attr:{type:'button'}});
-    if(iconOnly&&icon){makeIcon(b,icon);b.setAttribute('title',t(caption));b.setAttribute('aria-label',t(caption));b.addClass('sfc-icon-only');}
+    if(iconOnly&&icon){makeIcon(b,icon);b.createEl('span',{cls:'sfc-sr',text:t(caption)});b.addClass('sfc-icon-only');}
     else b.createEl('span',{text:t(caption)});
     btns.set(value,b);
     b.addEventListener('click',()=>{set(value);onChange(value);});
@@ -160,7 +158,6 @@ function addSegmented(parent:HTMLElement,label:string|null,opts:Opt[],current:st
 /** On/off switch: the label first, the switch to its right. */
 function addSwitch(parent:HTMLElement,label:string,checked:boolean,onChange:(on:boolean)=>void,hint?:string){
   const el=parent.createEl('label',{cls:'sfc-ctl sfc-switch'});
-  if(hint)el.setAttribute('title',hint);
   el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const input=el.createEl('input',{attr:{type:'checkbox'}});
   input.checked=checked;
@@ -171,7 +168,6 @@ function addSwitch(parent:HTMLElement,label:string,checked:boolean,onChange:(on:
 /** Slider over a few ordered levels: label, slider, then the current level's name. */
 function addStepSlider(parent:HTMLElement,label:string,opts:Opt[],current:string,onChange:(value:string)=>void,hint?:string){
   const el=parent.createDiv({cls:'sfc-ctl'});
-  if(hint)el.setAttribute('title',hint);
   el.createEl('span',{cls:'sfc-ctl-label',text:t(label)});
   const input=el.createEl('input',{cls:'sfc-slider',attr:{type:'range',min:'0',max:String(opts.length-1),step:'1'}});
   const name=el.createEl('span',{cls:'sfc-slider-value'});
@@ -187,7 +183,8 @@ function addGroup(parent:HTMLElement,title:string,icon:string,toggle:{checked:bo
   const titleEl=head.createDiv({cls:'sfc-group-title'});
   makeIcon(titleEl,icon);
   titleEl.createEl('span',{text:t(title)});
-  const sw=head.createEl('label',{cls:'sfc-switch sfc-group-switch',attr:{'aria-label':t(title)}});
+  const sw=head.createEl('label',{cls:'sfc-switch sfc-group-switch'});
+  sw.createEl('span',{cls:'sfc-sr',text:t(title)});
   const input=sw.createEl('input',{attr:{type:'checkbox'}});
   input.checked=toggle.checked;
   sw.createEl('span',{cls:'sfc-switch-track'});
@@ -219,7 +216,7 @@ function buildToolbar(parent:HTMLElement,plugin:SlideFrameCorrector,h:ToolbarHoo
   addStepSlider(color.body,'Strength',COLOR_LEVELS,prefs.color==='off'?plugin.lastColor:prefs.color,v=>{
     plugin.lastColor=v as ColorMode;plugin.setPref('color',v as ColorMode);h.onColor();
   });
-  addSegmented(color.body,'Mode',TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();},t('Tone'),true);
+  addSegmented(color.body,'Mode',TONE_OPTIONS,prefs.tone,v=>{plugin.setPref('tone',v as Tone);h.onTone();});
   color.setEnabled(prefs.color!=='off');
   return {setCropEnabled:frame.setEnabled};
 }
@@ -378,7 +375,6 @@ class QuadEditor {
     this.view.getContext('2d')!.drawImage(img,0,0,this.view.width,this.view.height);
     this.canvas=stage.createEl('canvas',{cls:'sfc-edit-canvas'});
     this.canvas.width=this.view.width;this.canvas.height=this.view.height;
-    this.canvas.setAttribute('aria-label',t('Drag a corner or an edge to align with the slide boundary'));
     this.lensSize=lensSize;
     this.lens=stage.createEl('canvas',{cls:'sfc-loupe'});
     this.lens.width=lensSize;this.lens.height=lensSize;
@@ -685,7 +681,7 @@ class CorrectSlideModal extends Modal {
       onTone:()=>this.requestPreview(false),
       frameExtras:body=>{
         this.autoButton=iconButton(body,'sparkles','Auto-detect',()=>this.editor?.autoDetect());
-        this.resetButton=iconButton(body,'rotate-ccw','Reset corners',()=>this.editor?.reset(),{iconOnly:true});
+        this.resetButton=iconButton(body,'rotate-ccw','Reset corners',()=>this.editor?.reset());
       },
     });
 
@@ -915,8 +911,8 @@ class BatchModal extends Modal {
     include.addEventListener('change',()=>this.updateSave());
     label.createEl('span',{text:t('Photo {0}',this.cards.indexOf(card)+1)});
     const tools=head.createDiv({cls:'sfc-card-tools'});
-    card.autoBtn=iconButton(tools,'sparkles','Auto',()=>{card.editor?.autoDetect();},{iconOnly:true});
-    iconButton(tools,'rotate-ccw','Reset',()=>{card.editor?.reset();},{iconOnly:true});
+    card.autoBtn=iconButton(tools,'sparkles','Auto',()=>{card.editor?.autoDetect();});
+    iconButton(tools,'rotate-ccw','Reset',()=>{card.editor?.reset();});
     iconButton(tools,'ellipsis','More',ev=>showInfoMenu(ev,fileRows(card.entry,card.source)),{iconOnly:true,fallback:'⋯'});
     card.reason=root.createDiv({cls:'sfc-reason'});
     card.status=root.createDiv({cls:'sfc-help',text:t('Loading…')});

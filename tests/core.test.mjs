@@ -154,3 +154,18 @@ test('wide edge trim reaches a thicker band than normal, and off leaves the fram
   assert.ok(normal[0].x<10,'normal stays outside: '+normal[0].x);
   assert.ok(wide[0].x>=15&&wide[0].y>=15,'wide reaches the slide: '+JSON.stringify(wide[0]));
 });
+
+test('xwide also trims a faint gold-like band that normal ignores, and never trims less than normal',()=>{
+  const W=320,H=200;
+  const gray=new Float32Array(W*H);
+  // 10px lip at ~85% of the slide white (normal treats < 80% as a band, xwide < 92%)
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const inSlide=x>=10&&x<W-10&&y>=10&&y<H-10;
+    gray[y*W+x]=inSlide?235:(x>=1&&x<W-1&&y>=1&&y<H-1?200:40);
+  }
+  const outer=[{x:1,y:1},{x:W-2,y:1},{x:W-2,y:H-2},{x:1,y:H-2}];
+  const normal=d.refineQuad(gray,W,H,outer,'normal');
+  const x=d.refineQuad(gray,W,H,outer,'xwide');
+  assert.ok(normal[0].x<3,'normal leaves the faint band: '+normal[0].x);
+  assert.ok(x[0].x>=10&&x[0].y>=10,'xwide trims it: '+JSON.stringify(x[0]));
+});

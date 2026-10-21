@@ -98,7 +98,8 @@ export function flattenBackground(img: ImageData, strength: number): void {
 export function autoColor(img: ImageData, strength: number): void {
   if (strength <= 0) return;
   let st = stats(img.data);
-  const lightSlide = st.percentile(st.luma, 0.5) > 120;
+  // 70th percentile, not the median: a slide with large dark pictures can have a dark median but a white background
+  const lightSlide = st.percentile(st.luma, 0.7) > 150;
   if (lightSlide) {
     flattenBackground(img, strength);
     st = stats(img.data);

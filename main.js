@@ -211,8 +211,13 @@ const RAD = Math.PI / 180;
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 /** `maxFrac`: how far an edge may move (fraction of the short side); wide only searches further, so it never moves less than normal. */
 const TRIM = {
-    normal: { maxFrac: 0.05, low: 0.80, reach: 0.90 },
-    wide: { maxFrac: 0.12, low: 0.85, reach: 0.90 },
+    normal: { maxFrac: 0.05, low: 0.80, reach: 0.90, margin: 0 },
+    wide: { maxFrac: 0.12, low: 0.85, reach: 0.90, margin: 1 },
+    // xwide looks for where the brightness profile stops rising (the knee at the end of the band) instead of a fixed
+    // brightness, so it also catches faint bands (a tan/gold lip at ~85% of the slide white) and is not fooled by slides
+    // that are naturally a little darker near their edges. It searches far, keeps a safety margin, and fits the line
+    // through the smaller shifts only, so content near an edge (a logo, a footer line) cannot pull it into the slide.
+    xwide: { maxFrac: 0.2, low: 0.92, reach: 0.97, margin: 2, lowerHalf: true, knee: true },
 };
 function refineQuad(gray, w, h, q, trim = 'normal') {
     const cfg = TRIM[trim];
@@ -271,9 +276,34 @@ function refineQuad(gray, w, h, q, trim = 'normal') {
                     pts.push({ t: sg.t, s: 0 });
                     continue;
                 }
+                if (cfg.knee) {
+                    // the further in of: where the brightness profile flattens out (knee), and where it first reaches 90% of the slide
+                    let found = 0;
+                    for (let k = 1; k <= maxShift; k++) {
+                        let ahead = 0;
+                        for (let j = k + 1; j <= Math.min(p.length - 1, k + 8); j++)
+                            if (p[j] > ahead)
+                                ahead = p[j];
+                        if (ahead > 0 && p[k] >= cfg.reach * ahead && p[k] - p[0] >= 0.03 * ref) {
+                            found = k;
+                            break;
+                        }
+                    }
+                    let bright = 0;
+                    for (let k = 1; k <= maxShift + 1; k++) {
+                        if (p[k] >= 0.9 * ref && p[Math.min(k + 2, p.length - 1)] >= 0.85 * ref) {
+                            bright = k;
+                            break;
+                        }
+                    }
+                    const s = Math.max(found, bright);
+                    if (s)
+                        pts.push({ t: sg.t, s: s + cfg.margin });
+                    continue;
+                }
                 for (let k = 1; k <= maxShift + 1; k++) {
                     if (p[k] >= cfg.reach * ref && p[Math.min(k + 2, p.length - 1)] >= (cfg.reach - 0.05) * ref) {
-                        pts.push({ t: sg.t, s: k });
+                        pts.push({ t: sg.t, s: k + cfg.margin });
                         break;
                     }
                 }
@@ -283,6 +313,13 @@ function refineQuad(gray, w, h, q, trim = 'normal') {
         let A = 0, B = 0;
         if (pts.length >= 5) {
             let use = pts;
+            if (cfg.lowerHalf) {
+                const sorted = pts.map(p => p.s).sort((a, b) => a - b);
+                const med = sorted[Math.floor(sorted.length / 2)];
+                use = pts.filter(p => p.s <= med);
+                if (use.length < 4)
+                    use = pts;
+            }
             for (let it = 0; it < 3; it++) {
                 const n = use.length;
                 const mt = use.reduce((m, p) => m + p.t, 0) / n, ms = use.reduce((m, p) => m + p.s, 0) / n;
@@ -293,9 +330,10 @@ function refineQuad(gray, w, h, q, trim = 'normal') {
                 }
                 B = sxx > 1e-9 ? sxy / sxx : 0;
                 A = ms - B * mt;
-                const res = pts.map(p => Math.abs(p.s - (A + B * p.t)));
+                const base = cfg.lowerHalf ? use : pts;
+                const res = base.map(p => Math.abs(p.s - (A + B * p.t)));
                 const sd = Math.sqrt(res.reduce((m, r) => m + r * r, 0) / res.length);
-                const next = pts.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
+                const next = base.filter((_, ix) => res[ix] <= Math.max(2, 2 * sd));
                 if (next.length < 4)
                     break;
                 use = next;
@@ -674,7 +712,8 @@ function autoColor(img, strength) {
     if (strength <= 0)
         return;
     let st = stats(img.data);
-    const lightSlide = st.percentile(st.luma, 0.5) > 120;
+    // 70th percentile, not the median: a slide with large dark pictures can have a dark median but a white background
+    const lightSlide = st.percentile(st.luma, 0.7) > 150;
     if (lightSlide) {
         flattenBackground(img, strength);
         st = stats(img.data);
@@ -812,8 +851,8 @@ const ZH = {
     'Output shape of the corrected slide. These choices are also remembered when you change them in the editor.': '校正后幻灯片的形状。在编辑窗口里修改的选择也会被记住。',
     'File format of the corrected image.': '校正后图片的文件格式。',
     'Correct': '矫正', 'Strength': '强度', 'Mode': '模式',
-    'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠',
-    'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边,但可能切进幻灯片,对浅色底幻灯片比较有效。',
+    'Edge trim': '边缘内收', 'Wide ⚠': '宽 ⚠', 'Extra wide ⚠⚠': '超宽 ⚠⚠',
+    'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.': '自动检测时把框往里收,去掉屏幕的黑边/金边。“宽”能收更厚的边;“超宽”还会收掉淡淡的边线并多留一圈余量。两档都可能切进幻灯片,对浅色底幻灯片比较有效。',
     'Crop to slide': '裁切到幻灯片', 'Off keeps the whole photo and only applies color/tone.': '关闭后保留整张照片，只应用矫色和色调。',
     'Color correction': '矫色', 'Auto white balance and levels. Off keeps the original colors; Strong is the most aggressive.': '自动白平衡和色阶曲线。关闭则保持原色；“强”最激进。',
     'Color, grayscale, or pure black & white (applied after color correction).': '彩色、灰度或纯黑白（在矫色之后应用）。',
@@ -877,15 +916,15 @@ function noteDraft(plugin, file, editor, sameAsSaved = false) {
         plugin.clearDraft(file.path);
 }
 const DEFAULT_PREFS = { aspect: '16:9', format: 'image/jpeg', color: 'off', tone: 'color', crop: true, lang: 'auto', trim: 'normal' };
-const TRIM_OPTIONS = [['Off', 'off'], ['Normal', 'normal'], ['Wide ⚠', 'wide']];
+const TRIM_OPTIONS = [['Off', 'off'], ['Normal', 'normal'], ['Wide ⚠', 'wide'], ['Extra wide ⚠⚠', 'xwide']];
 /** Edge trim used by the next auto-detect (kept in sync with the setting). */
 let currentTrim = 'normal';
-const TRIM_HINT = 'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands but can cut into the slide; it works best on light-background slides.';
+const TRIM_HINT = 'Pulls the detected frame inward past dark/gold screen bands. Wide reaches thicker bands; Extra wide also trims faint edge lines and keeps a safety margin. Both can cut into the slide and work best on light-background slides.';
 const LANG_OPTIONS = [['Auto (follow Obsidian)', 'auto'], ['English', 'en'], ['中文', 'zh']];
 const ASPECT_OPTIONS = [['16:9', '16:9'], ['4:3', '4:3'], ['Auto', 'auto']];
 const FORMAT_OPTIONS = [['JPG', 'image/jpeg'], ['PNG', 'image/png']];
 const COLOR_OPTIONS = [['Off', 'off'], ['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
-const TONE_OPTIONS = [['Full color', 'color', 'palette'], ['Grayscale', 'gray', 'contrast'], ['Black & white', 'bw', 'sun-moon']];
+const TONE_OPTIONS = [['Full color', 'color'], ['Grayscale', 'gray'], ['Black & white', 'bw']];
 const COLOR_LEVELS = [['Soft', 'soft'], ['Standard', 'standard'], ['Strong', 'strong']];
 const CROP_OPTIONS = [['On', 'on'], ['Off (color only)', 'off']];
 const SUPPORTED = /\.(png|jpe?g|webp|bmp|avif)$/i;
@@ -948,8 +987,6 @@ function fitCanvas(canvas, box) {
 }
 function addSelect(parent, label, opts, current, onChange, hint) {
     const holder = parent.createEl('label', { cls: 'sfc-field' });
-    if (hint)
-        holder.setAttribute('title', hint);
     holder.createEl('span', { text: (0, i18n_1.t)(label) });
     const select = holder.createEl('select');
     for (const [caption, value] of opts) {
@@ -961,12 +998,8 @@ function addSelect(parent, label, opts, current, onChange, hint) {
 }
 function setAutoBadge(btn, label, ok) {
     btn.toggleClass('sfc-auto-ok', ok);
-    if (btn.hasClass('sfc-icon-only')) {
-        const tip = ok ? `${(0, i18n_1.t)(label)} ✓` : (0, i18n_1.t)(label);
-        btn.setAttribute('title', tip);
-        btn.setAttribute('aria-label', tip);
+    if (btn.hasClass('sfc-icon-only'))
         return;
-    }
     const text = ok ? `✓ ${(0, i18n_1.t)(label)}` : (0, i18n_1.t)(label);
     const span = btn.querySelector('.sfc-btn-label');
     if (span)
@@ -991,8 +1024,7 @@ function iconButton(parent, icon, label, onClick, opts = {}) {
     makeIcon(b, icon);
     if (opts.iconOnly) {
         b.addClass('sfc-icon-only');
-        b.setAttribute('aria-label', (0, i18n_1.t)(label));
-        b.setAttribute('title', (0, i18n_1.t)(label));
+        b.createEl('span', { cls: 'sfc-sr', text: (0, i18n_1.t)(label) });
         if (!b.querySelector('svg'))
             b.setText(opts.fallback ?? '•');
     }
@@ -1011,8 +1043,6 @@ function iconToggle(parent, icon, label, pressed, onChange, withLabel = false) {
 /** Segmented control. With `iconOnly`, each choice is just its icon (the name is the tooltip). The label, if any, comes first, the control to its right. */
 function addSegmented(parent, label, opts, current, onChange, hint, iconOnly = false) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
-    if (hint)
-        el.setAttribute('title', hint);
     if (label)
         el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const seg = el.createDiv({ cls: 'sfc-seg', attr: { role: 'group' } });
@@ -1025,8 +1055,7 @@ function addSegmented(parent, label, opts, current, onChange, hint, iconOnly = f
         const b = seg.createEl('button', { attr: { type: 'button' } });
         if (iconOnly && icon) {
             makeIcon(b, icon);
-            b.setAttribute('title', (0, i18n_1.t)(caption));
-            b.setAttribute('aria-label', (0, i18n_1.t)(caption));
+            b.createEl('span', { cls: 'sfc-sr', text: (0, i18n_1.t)(caption) });
             b.addClass('sfc-icon-only');
         }
         else
@@ -1040,8 +1069,6 @@ function addSegmented(parent, label, opts, current, onChange, hint, iconOnly = f
 /** On/off switch: the label first, the switch to its right. */
 function addSwitch(parent, label, checked, onChange, hint) {
     const el = parent.createEl('label', { cls: 'sfc-ctl sfc-switch' });
-    if (hint)
-        el.setAttribute('title', hint);
     el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const input = el.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = checked;
@@ -1052,8 +1079,6 @@ function addSwitch(parent, label, checked, onChange, hint) {
 /** Slider over a few ordered levels: label, slider, then the current level's name. */
 function addStepSlider(parent, label, opts, current, onChange, hint) {
     const el = parent.createDiv({ cls: 'sfc-ctl' });
-    if (hint)
-        el.setAttribute('title', hint);
     el.createEl('span', { cls: 'sfc-ctl-label', text: (0, i18n_1.t)(label) });
     const input = el.createEl('input', { cls: 'sfc-slider', attr: { type: 'range', min: '0', max: String(opts.length - 1), step: '1' } });
     const name = el.createEl('span', { cls: 'sfc-slider-value' });
@@ -1070,7 +1095,8 @@ function addGroup(parent, title, icon, toggle) {
     const titleEl = head.createDiv({ cls: 'sfc-group-title' });
     makeIcon(titleEl, icon);
     titleEl.createEl('span', { text: (0, i18n_1.t)(title) });
-    const sw = head.createEl('label', { cls: 'sfc-switch sfc-group-switch', attr: { 'aria-label': (0, i18n_1.t)(title) } });
+    const sw = head.createEl('label', { cls: 'sfc-switch sfc-group-switch' });
+    sw.createEl('span', { cls: 'sfc-sr', text: (0, i18n_1.t)(title) });
     const input = sw.createEl('input', { attr: { type: 'checkbox' } });
     input.checked = toggle.checked;
     sw.createEl('span', { cls: 'sfc-switch-track' });
@@ -1101,7 +1127,7 @@ function buildToolbar(parent, plugin, h) {
         plugin.setPref('color', v);
         h.onColor();
     });
-    addSegmented(color.body, 'Mode', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); }, (0, i18n_1.t)('Tone'), true);
+    addSegmented(color.body, 'Mode', TONE_OPTIONS, prefs.tone, v => { plugin.setPref('tone', v); h.onTone(); });
     color.setEnabled(prefs.color !== 'off');
     return { setCropEnabled: frame.setEnabled };
 }
@@ -1378,7 +1404,6 @@ class QuadEditor {
         this.canvas = stage.createEl('canvas', { cls: 'sfc-edit-canvas' });
         this.canvas.width = this.view.width;
         this.canvas.height = this.view.height;
-        this.canvas.setAttribute('aria-label', (0, i18n_1.t)('Drag a corner or an edge to align with the slide boundary'));
         this.lensSize = lensSize;
         this.lens = stage.createEl('canvas', { cls: 'sfc-loupe' });
         this.lens.width = lensSize;
@@ -1720,7 +1745,7 @@ class CorrectSlideModal extends obsidian_1.Modal {
             onTone: () => this.requestPreview(false),
             frameExtras: body => {
                 this.autoButton = iconButton(body, 'sparkles', 'Auto-detect', () => this.editor?.autoDetect());
-                this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset(), { iconOnly: true });
+                this.resetButton = iconButton(body, 'rotate-ccw', 'Reset corners', () => this.editor?.reset());
             },
         });
         const body = this.contentEl.createDiv({ cls: 'sfc-body' });
@@ -1988,8 +2013,8 @@ class BatchModal extends obsidian_1.Modal {
         include.addEventListener('change', () => this.updateSave());
         label.createEl('span', { text: (0, i18n_1.t)('Photo {0}', this.cards.indexOf(card) + 1) });
         const tools = head.createDiv({ cls: 'sfc-card-tools' });
-        card.autoBtn = iconButton(tools, 'sparkles', 'Auto', () => { card.editor?.autoDetect(); }, { iconOnly: true });
-        iconButton(tools, 'rotate-ccw', 'Reset', () => { card.editor?.reset(); }, { iconOnly: true });
+        card.autoBtn = iconButton(tools, 'sparkles', 'Auto', () => { card.editor?.autoDetect(); });
+        iconButton(tools, 'rotate-ccw', 'Reset', () => { card.editor?.reset(); });
         iconButton(tools, 'ellipsis', 'More', ev => showInfoMenu(ev, fileRows(card.entry, card.source)), { iconOnly: true, fallback: '⋯' });
         card.reason = root.createDiv({ cls: 'sfc-reason' });
         card.status = root.createDiv({ cls: 'sfc-help', text: (0, i18n_1.t)('Loading…') });
